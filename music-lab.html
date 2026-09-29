@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <title>MERIDIAN LINE music lab</title>
+  <style>
+    body { margin: 0; padding: 32px; background: #070b14; color: #dbe7ff; font: 15px/1.5 system-ui, sans-serif; }
+    h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .08em; }
+    p.sub { margin: 0 0 24px; color: #7f93b8; }
+    .row { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin: 10px 0; max-width: 820px; background: #0d1526; border: 1px solid #1c2b48; border-radius: 8px; }
+    .row.active { border-color: #35d0ff; box-shadow: 0 0 0 1px #35d0ff33; }
+    .row .txt { flex: 1; } .row b { display: block; } .row small { color: #7f93b8; }
+    button { font: inherit; padding: 7px 14px; border-radius: 6px; border: 1px solid #2b4570; background: #12203a; color: #dbe7ff; cursor: pointer; }
+    button:hover { background: #1a2d52; } button.pri { background: #0c6f8f; border-color: #35d0ff; }
+    .tools { display: flex; align-items: center; gap: 14px; margin: 18px 0 8px; max-width: 820px; }
+    #status { color: #8fe3a8; min-height: 1.4em; }
+  </style>
+</head>
+<body>
+  <h1>TITLE MUSIC LAB</h1>
+  <p class="sub">Audition the title theme options. "Use in game" saves your choice for this browser (localStorage), then open the game.</p>
+  <div class="tools">
+    <label>Volume <input id="vol" type="range" min="0" max="1" step="0.01" value="0.7" /></label>
+    <button id="stop">Stop</button>
+    <a href="./" style="color:#35d0ff">Open the game</a>
+  </div>
+  <div id="list"></div>
+  <p id="status"></p>
+  <script type="module" src="/src/audio/title/lab.js"></script>
+</body>
+</html>

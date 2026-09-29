@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#070b14" />
+  <title>MERIDIAN LINE</title>
+  <meta name="description" content="MERIDIAN LINE is an on-rails 3D space shooter for the browser. Fly the Vanta Mk II with Ninth Flight through three worlds of the Meridian Reach. Fully procedural, no downloads." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="MERIDIAN LINE" />
+  <meta property="og:description" content="An on-rails 3D space shooter for the browser. Three worlds, three bosses, lock-on volleys, barrel rolls and a synthesised soundtrack. No assets, no downloads." />
+  <meta property="og:url" content="https://bop-del.github.io/meridian-line/" />
+  <meta property="og:site_name" content="MERIDIAN LINE" />
+  <meta property="og:image" content="https://bop-del.github.io/meridian-line/og.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="MERIDIAN LINE" />
+  <meta name="twitter:image" content="https://bop-del.github.io/meridian-line/og.jpg" />
+  <meta name="twitter:description" content="An on-rails 3D space shooter for the browser. Fully procedural, no downloads." />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    #app, #ui-root { position: fixed; inset: 0; }
+    #ui-root { pointer-events: none; }
+    #ui-root > * { pointer-events: auto; }
+    #app canvas { display: block; outline: none; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="ui-root"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
