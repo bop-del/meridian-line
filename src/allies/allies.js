@@ -1,6 +1,6 @@
 // Wingmen AI (vex, ferro, pip). Formation flying relative to the rail, target shooting with weak lasers,
 // loops and barrel rolls, damage and retreat, and the transponder-link mechanic (a contact jams an escort's link, clear it in
-// time). The trouble type rotates: tail contact, pinned at a gate, engine disabled, cut off by a barrier.
+// time). The trouble type rotates: pursuer astern, pinned at a gate, engine disabled, cut off by a barrier.
 //
 // API: allies.chaseMe(name, enemy, {time=18, kind}) starts the transponder link timer (kind: 'tail'|'gate'|'engine'|'barrier',
 // rotated automatically when omitted); allies.say(name, text) posts a comm line;
@@ -23,23 +23,23 @@ const SPEAKER = { vex: 'VEX', ferro: 'FERRO', pip: 'PIP' };
 // drone that reports status codes as a readout (lowercase status codes). Placeholders: {hp} hull percent of the
 // speaker, {shield} player shield percent, {kills} kills this level.
 const TROUBLE = ['tail', 'gate', 'engine', 'barrier'];
-const TROUBLE_WARN = { tail: 'LINK JAMMED, TAIL CONTACT', gate: 'LINK BLOCKED AT GATE', engine: 'DRIVE FAULT, LINK FADING', barrier: 'LINK CUT BY BARRIER' };
+const TROUBLE_WARN = { tail: 'LINK JAMMED, PURSUER ASTERN', gate: 'LINK BLOCKED AT GATE', engine: 'DRIVE FAULT, LINK FADING', barrier: 'LINK CUT BY BARRIER' };
 const LINES = {
   chase: {
     vex: {
-      tail: ['Lead, contact on my six, bearing 180. Transponder is jammed.', 'Wing two, tail contact. Link degrading, unable to shake.'],
+      tail: ['Lead, pursuer astern, bearing 180. Transponder is jammed.', 'Wing two, pursuer astern. Link degrading, unable to shake it.'],
       gate: ['Wing two, wedged against the gate frame. Link blocked, unable to manoeuvre.'],
       engine: ['Wing two, port drive fault. Thrust at forty percent, link fading.'],
       barrier: ['Wing two, the barrier has cut my link. No route forward.'],
     },
     ferro: {
-      tail: ['I have acquired a follower. He is very committed.', 'Something is on my tail. It has not introduced itself.'],
+      tail: ['I have acquired a follower. He is very committed.', 'Something is astern of me. It has not introduced itself.'],
       gate: ['I am wedged against a gate and my link is not enjoying it.'],
       engine: ['The engine has left the conversation. The link is following it.'],
       barrier: ['Barrier ahead, company behind, link cut. Geometrically unfortunate.'],
     },
     pip: {
-      tail: ['contact 4 on tail, link jammed, evading', 'hostile lock, link noise rising'],
+      tail: ['contact 4 astern, link jammed, evading', 'hostile lock, link noise rising'],
       gate: ['path blocked, gate 3 closed, link blocked'],
       engine: ['engine fault E2, thrust 40 percent, link fading'],
       barrier: ['barrier ahead, link cut, hull {hp} percent'],
@@ -47,7 +47,7 @@ const LINES = {
   },
   rescued: {
     vex: ['Contact eliminated. Wing two resuming station.', 'Threat cleared. Formation restored.'],
-    ferro: ['Clear. That was a lot of attention for one afternoon.', 'Tail is gone. Position restored.'],
+    ferro: ['Clear. That was a lot of attention for one afternoon.', 'Pursuer is gone. Position restored.'],
     pip: ['contact cleared. hull {hp} percent. formation restored', 'threat neutral. resuming station'],
   },
   hit: {
@@ -269,7 +269,7 @@ class Wingman {
           this.tgt.set(clamp(_q.x * 0.4 + wx * 0.5, -12, 12), clamp(_q.y + wy * 0.5 + 1, -6, 9), -19 + Math.sin(this.t * 1.7) * 2);
           k = 6; damp = 5;
         } else {
-          // tail contact: weave just ahead of the pursuer, inside the play area
+          // pursuer astern: weave just ahead of the pursuer, inside the play area
           this.tgt.set(clamp(_q.x * 0.6 + wx, -17, 17), clamp(_q.y + wy + 1, -6, 9), clamp(_q.z - 9, -46, -14));
           k = 9; damp = 6;
         }
@@ -483,7 +483,7 @@ export const allies = {
   },
 
   /** an escort is in trouble because of `enemy`; clear it within `time` seconds or the escort goes down. The trouble kind
-   *  rotates (tail contact, pinned at a gate, engine disabled, cut off by a barrier) unless opts.kind is given. */
+   *  rotates (pursuer astern, pinned at a gate, engine disabled, cut off by a barrier) unless opts.kind is given. */
   chaseMe(name, enemy, opts = {}) {
     if (!this.enabled) return;
     const n = String(name).toLowerCase();

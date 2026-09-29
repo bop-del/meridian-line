@@ -220,7 +220,7 @@ function script(ctx, S, W) {
 
   // a two chain slipstream lane; finishing a chain puts a tail on PIP
   S.cells(1260, 'shieldCell', 0, 0, 8, 'wave');
-  S.escort('pip', { trigger: 'cells', arm: 1250, giveUp: 1560, type: 'grunt', ahead: 160, time: 16, trouble: 'engine', note: ['LUMEN', 'Escort PIP integrity falling. Clear the contact.'] });
+  S.escort('pip', { trigger: 'cells', arm: 1250, giveUp: 1560, type: 'grunt', ahead: 160, time: 16, trouble: 'engine', note: ['LUMEN', 'Transponder link to PIP is degrading. Clear the jamming contact.'] });
   S.wave(1500, 'vee', 0, 2, { type: 'grunt', count: 5 });
   S.enemy(1560, 'gunship', -8, 3);
   S.enemy(1600, 'gunship', 8, 4);
@@ -238,7 +238,7 @@ function script(ctx, S, W) {
   S.barge(2340, -36, { h: 8, rot: 0.05 });
   S.enemy(2330, 'gunship', 0, 4);
   S.wave(2450, 'circle', 0, 0, { type: 'dart', count: 6 });
-  S.escort('ferro', { trigger: 'kills', arm: 2440, kills: 5, giveUp: 2800, type: 'grunt', x: 16, ahead: 150, time: 18, trouble: 'pinned', note: ['LUMEN', 'Escort FERRO integrity falling. Clear the contact.'] });
+  S.escort('ferro', { trigger: 'kills', arm: 2440, kills: 5, giveUp: 2800, type: 'grunt', x: 16, ahead: 150, time: 18, trouble: 'pinned', note: ['LUMEN', 'Transponder link to FERRO is degrading. Clear the jamming contact.'] });
   S.enemy(2760, 'bomber', 0, 3);
   S.cells(2850, 'shieldCell', 0, 0, 4, 'zigzag');
   S.pickup(2960, 'repair', -9, 3);
@@ -271,7 +271,7 @@ function script(ctx, S, W) {
   S.wave(4360, 'convoy', 0, 0, { type: 'gunship', count: 3 });
   S.decor(4460, 'reefSpan', 0, 0, { R: 110, yBase: -52 });
   S.enemy(4420, 'bomber', 0, 2); S.enemy(4470, 'bomber', -9, 4);
-  S.escort('vex', { trigger: 'dist', at: 4560, type: 'interceptor', ahead: 170, time: 20, trouble: 'cutoff', note: ['LUMEN', 'Escort VEX integrity falling. Clear the contact.'] });
+  S.escort('vex', { trigger: 'dist', at: 4560, type: 'interceptor', ahead: 170, time: 20, trouble: 'cutoff', note: ['LUMEN', 'Transponder link to VEX is degrading. Clear the jamming contact.'] });
   S.cells(4640, 'shieldCell', 0, 0, 4, 'spiral');
   S.wave(4700, 'pincer', 0, 0, { type: 'grunt', count: 6 });
   // a forest of spires: alternating stacks

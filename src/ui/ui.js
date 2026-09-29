@@ -131,8 +131,6 @@ export const ui = {
   comm(a, text, duration) {
     if (typeof a === 'string') a = { speaker: a, text, duration };
     a = a ? { ...a } : {};
-    // level scripts word the escort trouble note in the old escort-integrity terms: present it as the transponder link
-    if (typeof a.text === 'string') a.text = a.text.replace(/^Escort (\w+) integrity falling\. Clear the contact\./, 'Transponder link to $1 is degrading. Clear the jamming contact.');
     this.commBox?.push(a);
   },
 

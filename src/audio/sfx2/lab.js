@@ -1,4 +1,4 @@
-// Sound lab page script (owned by the weapons sound agent). sfx-lab.html lists every sound effect from
+// Sound lab page script sfx-lab.html lists every sound effect from
 // sfxGroups() and plays them through the same chain as the game (gain, compressor, limiter, master).
 import { SFX, SFX_META } from '../sfx.js';
 import { sfxGroups, createSfxChain, playSfx, rapidInterval, LEGACY_WEAPONS } from './registry.js';
@@ -158,7 +158,7 @@ function build() {
   list.innerHTML = '';
   for (const g of sfxGroups()) {
     const h = document.createElement('h2'); h.textContent = `${g.label} (${g.names.filter((n) => !L3_NAMES.has(n)).length})`; list.append(h);
-    if (!g.names.length) { const p = document.createElement('p'); p.className = 'sub'; p.textContent = 'Nothing delivered yet.'; list.append(p); continue; }
+    if (!g.names.length) { const p = document.createElement('p'); p.className = 'sub'; p.textContent = 'No sounds in this group.'; list.append(p); continue; }
     for (const name of g.names) {
       if (L3_NAMES.has(name)) continue;                       // shown in the level 3 candidates section
       const isNew = g.id !== 'other';

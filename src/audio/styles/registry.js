@@ -43,7 +43,7 @@ export function styleList(styles = STYLES) {
   return Object.keys(styles).map((id) => ({ id, name: styles[id].name }));
 }
 
-/** The track module of a style, or null when that style has not delivered it. */
+/** The track module of a style, or null when that style has no track of that name. */
 export function styleTrack(styleId, name, styles = STYLES) {
   return styles[styleId]?.tracks?.[name] || null;
 }

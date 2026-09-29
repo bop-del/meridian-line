@@ -30,14 +30,14 @@ function info(track) {
     const meta = m.meta, beats = meta.beatsPerBar ?? 4;
     const barDur = meta.barDur ?? (beats * 60) / meta.bpm;
     const loop = meta.loop !== false;
-    return { delivered: true, name: meta.name || track, desc: meta.description || '', bpm: meta.bpm, bars: meta.bars, loop, secs: Math.round(meta.bars * barDur) };
+    return { available: true, name: meta.name || track, desc: meta.description || '', bpm: meta.bpm, bars: meta.bars, loop, secs: Math.round(meta.bars * barDur) };
   }
-  if (track === 'title') return { delivered: false, name: 'missing title', desc: 'This style has no title track yet, the game uses the default style title.', bpm: '?', bars: '?', loop: true, secs: 0, missing: true };
+  if (track === 'title') return { available: false, name: 'missing title', desc: 'This style has no title track, the game uses the default style title.', bpm: '?', bars: '?', loop: true, secs: 0, missing: true };
   const def = SONG_DEFS[track];
-  if (!def) return { delivered: false, name: 'nothing', desc: 'No track and no legacy song.', bpm: '?', bars: '?', loop: true, secs: 0, missing: true };
+  if (!def) return { available: false, name: 'nothing', desc: 'No track and no legacy song.', bpm: '?', bars: '?', loop: true, secs: 0, missing: true };
   let bars = 0, loop = true;
   try { const s = compileSong(track); bars = s.sections.reduce((n, x) => n + x.bars, 0); loop = s.loop !== false; } catch (e) { /* ignore */ }
-  return { delivered: false, name: `legacy: ${def.name || track}`, desc: 'Falls back to the old sequencer song.', bpm: def.bpm, bars, loop, secs: Math.round((bars * 240) / def.bpm) };
+  return { available: false, name: `legacy: ${def.name || track}`, desc: 'Falls back to the old sequencer song.', bpm: def.bpm, bars, loop, secs: Math.round((bars * 240) / def.bpm) };
 }
 
 function render() {
@@ -46,7 +46,7 @@ function render() {
     const i = info(track);
     const active = playing && playing.style === styleId && playing.track === track;
     const row = document.createElement('div'); row.className = 'row' + (active ? ' active' : ''); row.dataset.track = track;
-    const badge = i.delivered ? '<span class="badge ok">delivered</span>' : `<span class="badge legacy">${i.missing ? 'missing' : 'falls back to legacy'}</span>`;
+    const badge = i.available ? '<span class="badge ok">available</span>' : `<span class="badge legacy">${i.missing ? 'missing' : 'falls back to legacy'}</span>`;
     const kind = i.loop ? '<span class="badge">loop</span>' : '<span class="badge">one-shot</span>';
     row.innerHTML = `<div class="txt"><b>${track.toUpperCase()}: ${i.name}${badge}${kind}</b>` +
       `<small>${i.bpm} BPM, ${i.bars} bars${i.secs ? `, about ${i.secs} s` : ''}. ${i.desc}</small><small class="live" data-live></small></div>`;

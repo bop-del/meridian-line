@@ -228,11 +228,11 @@ function script(ctx, S, W) {
   field(2260, 3550, { step: 48, small: 1.4, med: 0.55, big: 0.26 });
   S.hint(2300, 'FLIP: Q or E deflects incoming fire', 5);
   S.wave(2450, 'circle', 0, 0, { type: 'dart', count: 7 });
-  S.escort('ferro', { trigger: 'roll', arm: 2400, giveUp: 2800, type: 'interceptor', x: 15, ahead: 170, time: 18, trouble: 'tail', note: ['LUMEN', 'Escort FERRO integrity falling. Clear the contact.'] });
+  S.escort('ferro', { trigger: 'roll', arm: 2400, giveUp: 2800, type: 'interceptor', x: 15, ahead: 170, time: 18, trouble: 'tail', note: ['LUMEN', 'Transponder link to FERRO is degrading. Clear the jamming contact.'] });
   S.enemy(2900, 'gunship', -8, 4); S.enemy(2940, 'gunship', 9, 2);
   S.cells(3050, 'shieldCell', 0, 0, 4, 'zigzag');
   S.wave(3150, 'pincer', 0, 1, { type: 'grunt', count: 6 });
-  S.escort('vex', { trigger: 'kills', arm: 3140, kills: 6, giveUp: 3420, type: 'grunt', x: -15, ahead: 170, time: 18, trouble: 'cutoff', note: ['LUMEN', 'Escort VEX integrity falling. Clear the contact.'] });
+  S.escort('vex', { trigger: 'kills', arm: 3140, kills: 6, giveUp: 3420, type: 'grunt', x: -15, ahead: 170, time: 18, trouble: 'cutoff', note: ['LUMEN', 'Transponder link to VEX is degrading. Clear the jamming contact.'] });
   S.wave(3400, 'line', 0, 0, { type: 'interceptor', count: 3 });
 
   // ---- quiet stretch: a hulk in the lane and a capacitor tucked behind it

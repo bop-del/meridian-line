@@ -1,4 +1,4 @@
-// Impact and pickup sound effects (owned by the impacts sound agent). Same recipe format as ../sfx.js:
+// Impact and pickup sound effects Same recipe format as ../sfx.js:
 // fn(e) with e = {ac, out, t, v, p, r} returns the duration in seconds; META entries set voice limits per name.
 // Names defined here override the legacy recipes in ../sfx.js.
 //

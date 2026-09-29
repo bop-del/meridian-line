@@ -151,7 +151,7 @@ export class Sequencer {
 
 /**
  * Owns the active player and the ones fading out. Every play(name) resolves through the selected style
- * (STYLES[style].tracks[name], played by VariantPlayer). A track the style has not delivered falls back to the legacy
+ * (STYLES[style].tracks[name], played by VariantPlayer). A track the style does not define falls back to the legacy
  * Sequencer song in songs.js; the title always resolves to a style track (the default style's title as last resort).
  */
 export class MusicEngine {

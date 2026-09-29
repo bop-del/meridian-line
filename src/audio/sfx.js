@@ -164,7 +164,6 @@ const LEGACY_SFX = {
     return 0.7;
   },
 };
-LEGACY_SFX.ring = LEGACY_SFX.cell; // alias for older callers
 
 // Sounds in ./sfx2/ (weapons.js, impacts.js) override the legacy recipes of the same name.
 export const SFX = { ...LEGACY_SFX, ...WEAPON_SFX, ...IMPACT_SFX };
@@ -184,7 +183,6 @@ const LEGACY_META = {
   alarm: { gap: 0.4, max: 1, prio: 4 },
   pickup: { gap: 0.06, max: 3, prio: 3 },
   cell: { gap: 0.06, max: 4, prio: 3 },
-  ring: { gap: 0.06, max: 4, prio: 3 }, // alias of cell, kept for older callers
   boost: { gap: 0.3, max: 1, prio: 3 },
   brake: { gap: 0.3, max: 1, prio: 3 },
   roll: { gap: 0.15, max: 2, prio: 2 },

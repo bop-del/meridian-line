@@ -270,7 +270,7 @@ export class Screens {
     h('div', 'title-grad', null, d.el);
     h('div', 'title-glow', null, d.el);
     const inner = h('div', 'title-inner', null, d.el);
-    h('div', 'kicker', 'NINTH FLIGHT PRESENTS', inner);
+    h('div', 'kicker', 'A NINTH FLIGHT SORTIE', inner);
     const logo = h('div', 'logo', null, inner);
     logo.setAttribute('aria-label', 'MERIDIAN LINE');
     const l1 = h('div', 'logo-1', null, logo);
@@ -418,7 +418,7 @@ export class Screens {
     const d = this.screen('levelcomplete');
     h('div', 'dim', null, d.el);
     const p = h('div', 'panel wide', null, d.el);
-    h('div', 'panel-title big cyan', 'MISSION COMPLETE', p);
+    h('div', 'panel-title big cyan', 'SORTIE CLEARED', p);
     this.lcName = h('div', 'panel-sub', '', p);
     const body = h('div', 'lc-body', null, p);
     this.lcStats = this.statBlock(body, ['SCORE', 'KILLS']);

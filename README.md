@@ -26,7 +26,7 @@ Built with three.js (r170) and Vite. Everything is procedural: geometry from pri
 
 A gamepad works too: sticks to steer and aim, triggers and shoulders for fire, boost, brake and roll, Start to pause.
 
-Control tips appear as a small prompt line at the bottom of the screen (`ctx.ui.hint(text, duration, label)`; without a label the text is split at a colon only when a single short word precedes the only colon).
+Control tips appear as a small prompt line at the bottom of the screen.
 
 ### Sound gate, music style and mute
 
@@ -77,7 +77,8 @@ The build uses relative asset paths (`base: './'`), so the contents of `dist/` c
     src/fx/         pooled particles, explosions, debris, speed streaks
     src/ui/         HUD, menus, comm box and text readouts, portraits
     src/audio/      synth, sound effects, sequenced music, the three music styles
-    music-lab.html  page for auditioning the title themes
+    music-lab.html  audition every track of every music style
+    sfx-lab.html    audition every sound effect
     tools/          headless test helpers (system Chrome through puppeteer-core)
     docs/           architecture notes
 

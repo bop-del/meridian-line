@@ -248,7 +248,7 @@ function script(ctx, S, W) {
 
   // PIP is pinned against a beam gate
   S.pickup(2360, 'bomb', -8, 2);
-  S.escort('pip', { trigger: 'dist', at: 2440, type: 'grunt', x: 12, ahead: 170, time: 18, trouble: 'pinned', note: ['LUMEN', 'Escort PIP integrity falling. Clear the contact.'] });
+  S.escort('pip', { trigger: 'dist', at: 2440, type: 'grunt', x: 12, ahead: 170, time: 18, trouble: 'pinned', note: ['LUMEN', 'Transponder link to PIP is degrading. Clear the jamming contact.'] });
   S.wave(2560, 'pincer', 0, 0, { type: 'gunship', count: 4 });
 
   // rotors and beam gates
@@ -261,7 +261,7 @@ function script(ctx, S, W) {
   S.wave(3120, 'vee', 0, 2, { type: 'interceptor', count: 6 });
   for (let i = 0; i < 5; i++) S.enemy(3290 + i * 10, 'mine', -14 + i * 7, (i % 2) * 5 - 2);
   S.cells(3340, 'shieldCell', 0, 0, 4, 'spiral');
-  S.escort('ferro', { trigger: 'cells', arm: 3330, giveUp: 3620, type: 'interceptor', x: -15, ahead: 170, time: 18, trouble: 'cutoff', note: ['LUMEN', 'Escort FERRO integrity falling. Clear the contact.'] });
+  S.escort('ferro', { trigger: 'cells', arm: 3330, giveUp: 3620, type: 'interceptor', x: -15, ahead: 170, time: 18, trouble: 'cutoff', note: ['LUMEN', 'Transponder link to FERRO is degrading. Clear the jamming contact.'] });
   S.enemy(3420, 'carrier', 0, 8, { ahead: 380 });
   S.enemy(3560, 'swarmer', 0, 0, { count: 12 });
   S.wave(3650, 'convoy', 0, 0, { type: 'gunship', count: 4 });
