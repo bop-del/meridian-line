@@ -1,31 +1,14 @@
-// Title music variants. Default is B (dark synthwave). A and C are selectable on the title screen (M key), in the music
-// lab, or with ?title=a|b|c in the URL. 
-// The choice persists in localStorage 'meridian-title-variant'.
-import * as a from './variant_a.js';
-import * as b from './variant_b.js';
-import * as c from './variant_c.js';
+// Title music variants: kept as a thin view over the music styles (src/audio/styles/registry.js), which now own the
+// selection, persistence (localStorage 'meridian-music-style') and the URL params (?style= and the ?title= alias).
+import { STYLES, DEFAULT_STYLE, selectedStyle, saveStyle, styleList } from '../styles/registry.js';
 import { VariantPlayer } from './player.js';
 
-export const TITLE_VARIANTS = { a, b, c };
+export const TITLE_VARIANTS = Object.fromEntries(Object.entries(STYLES).map(([id, s]) => [id, s.tracks.title]));
 export { VariantPlayer };
 
-export const DEFAULT_TITLE_VARIANT = 'b';
-export const TITLE_ORDER = ['b', 'a', 'c']; // cycle order in the game UI
+export const DEFAULT_TITLE_VARIANT = DEFAULT_STYLE;
+export const TITLE_ORDER = Object.keys(STYLES);
 
-const KEY = 'meridian-title-variant';
-
-/** Returns the selected title variant id (default B). */
-export function selectedTitleVariant() {
-  let id = null;
-  try { id = new URLSearchParams(location.search).get('title'); } catch (e) { /* not in a browser */ }
-  if (!id) { try { id = localStorage.getItem(KEY); } catch (e) { /* storage blocked */ } }
-  return id && TITLE_VARIANTS[id] ? id : DEFAULT_TITLE_VARIANT;
-}
-
-export function saveTitleVariant(id) {
-  try { localStorage.setItem(KEY, id); } catch (e) { /* storage blocked */ }
-}
-
-export function titleVariantList() {
-  return TITLE_ORDER.map((id) => ({ id, name: TITLE_VARIANTS[id].meta.name }));
-}
+export const selectedTitleVariant = selectedStyle;
+export const saveTitleVariant = saveStyle;
+export const titleVariantList = styleList;

@@ -1,5 +1,5 @@
 // ctx.ui: DOM overlay (HUD, comm box, menus). Driven by ctx.state and ctx.events.
-// API: ui.comm({speaker, text, duration}), ui.banner(text, sub), ui.warning(text), ui.hint(text, duration = 4),
+// API: ui.comm({speaker, text, duration}), ui.banner(text, sub), ui.warning(text), ui.hint(text, duration = 4, label),
 // ui.toast(text, kind), ui.setCrosshair(bool), ui.hud, ui.screens, ui.commBox.
 import './style.css';
 import { h } from './dom.js';
@@ -130,7 +130,10 @@ export const ui = {
   // ==== public API
   comm(a, text, duration) {
     if (typeof a === 'string') a = { speaker: a, text, duration };
-    this.commBox?.push(a || {});
+    a = a ? { ...a } : {};
+    // level scripts word the escort trouble note in the old escort-integrity terms: present it as the transponder link
+    if (typeof a.text === 'string') a.text = a.text.replace(/^Escort (\w+) integrity falling\. Clear the contact\./, 'Transponder link to $1 is degrading. Clear the jamming contact.');
+    this.commBox?.push(a);
   },
 
   banner(text, sub) { this.hud?.banner(text, sub); },
@@ -140,8 +143,9 @@ export const ui = {
     if (this.hud.warning(text)) this.ctx.audio?.sfx?.('warning');
   },
 
-  // small prompt line for control tips, e.g. hint('FLIP: Q or E deflects incoming fire')
-  hint(text, duration = 4) { this.hud?.hint(text, duration); },
+  // small prompt line for control tips: hint('hold SPACE, release', 4, 'CHARGE'). Without a label the text is split at
+  // a colon only when a single short word precedes the only colon, e.g. hint('FLIP: Q or E deflects incoming fire').
+  hint(text, duration = 4, label) { this.hud?.hint(text, duration, label); },
 
   toast(text, kind) { this.hud?.toast(text, kind); },
 

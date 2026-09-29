@@ -463,14 +463,14 @@ export class Tidebreaker extends Boss {
     if (this.recoil > 0) { this.recoil = Math.max(0, this.recoil - dt * 3); this.cannon.position.z = 24 - this.recoil * 3; }
     // cables
     for (const c of this.cables) this.placeCable(c, dt);
-    for (const p of this.clamps) if (p.alive) { p.ring.rotation.z += dt * 1.6; p.halo.scale.setScalar(12 + Math.sin(t * 6 + p.idx * 2) * 1.4); }
+    for (const p of this.clamps) if (p.alive) { p.ring.rotation.z += dt * 1.6; p.halo.scale.setScalar(9 + Math.sin(t * 6 + p.idx * 2) * 1.1); }
     // hatch slides open and the core rises out of the silo while the cycle says open
     const C = this.cycle, want = this.phase === 3 && (C.state === 'open' || C.state === 'opening' || (C.state === 'closing' && C.t < 0.15)) ? 1 : 0;
     this.hatchOpen += (want - this.hatchOpen) * Math.min(1, dt * 3.2);
     for (const h of this.hatch) h.position.x = h.userData.s * (2.2 + this.hatchOpen * 3.4);
     this.coreUp += ((this.core.exposed ? 1 : 0) - this.coreUp) * Math.min(1, dt * 3);
     this.coreA.position.y = 1.4 + this.coreUp * 4.2;
-    this.coreHalo.scale.setScalar((this.core.exposed ? 15 : 3 + this.hatchOpen * 4) + Math.sin(t * 8) * 1.2);
+    this.coreHalo.scale.setScalar((this.core.exposed ? 11 : 3 + this.hatchOpen * 3) + Math.sin(t * 8) * 0.9);
     this.coreA.rotation.y += dt * (this.core.exposed ? 2.2 : 0.8);
     // cracked hull and vents
     this.crackGlow += ((this.phase === 3 ? 1 : 0) - this.crackGlow) * Math.min(1, dt * 1.5);

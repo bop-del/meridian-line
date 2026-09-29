@@ -1,17 +1,46 @@
 // ctx.audio: procedural WebAudio engine (sfx, engine ambience, music).
 // API: audio.setIntensity(0..1) to override music intensity,
 // audio.stopMusic(fade), audio.getVolumes(). sfx names also accept 'uiBack' (alias of uiMove, lower pitch).
+// Music style (the whole game's music follows it): audio.musicStyles() -> [{id, name}], audio.getMusicStyle(),
+// audio.setMusicStyle(id) (persists, applies live, emits 'audio:style' {id}). Old aliases: titleVariants(),
+// getTitleVariant(), setTitleVariant(id).
+// Unlock: audio.unlocked (bool), audio.unlock() (call from a user gesture), event 'audio:unlocked' fires once.
+// Debug: audio.debug() -> {style, track, playing, intensity, loop, ...}.
 // Sounds triggered by game events are deduped against direct audio.sfx() calls (same name or same
 // group within ~60ms and rate limited per name), so callers may use either or both.
 import { SFX, SFX_META } from './sfx.js';
 import { MusicEngine } from './music.js';
-import { selectedTitleVariant, saveTitleVariant, titleVariantList } from './title/registry.js';
+import { selectedStyle, saveStyle, styleList } from './styles/registry.js';
 import { getNoise } from './synth.js';
 
 const MAX_VOICES = 30;
 const DEFAULT_META = { gap: 0.04, max: 4, prio: 2 };
 const LEVEL_MUSIC = ['thalassa', 'cinder', 'foundry'];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+/**
+ * Clamps every BiquadFilter frequency (value setter and automation calls) to sampleRate / 2 so that low sample rate
+ * devices do not log range warnings for filters tuned for 44.1 kHz and up. Call once per context before building nodes.
+ */
+export function clampBiquads(ac) {
+  if (!ac || ac.__biquadClamp || typeof ac.createBiquadFilter !== 'function' || typeof AudioParam === 'undefined') return;
+  ac.__biquadClamp = true;
+  const make = ac.createBiquadFilter.bind(ac);
+  const cl = (v) => (typeof v === 'number' && v > ac.sampleRate / 2 ? ac.sampleRate / 2 : v);
+  const valueDesc = Object.getOwnPropertyDescriptor(AudioParam.prototype, 'value');
+  ac.createBiquadFilter = function createBiquadFilter() {
+    const f = make();
+    const p = f.frequency;
+    for (const m of ['setValueAtTime', 'linearRampToValueAtTime', 'exponentialRampToValueAtTime', 'setTargetAtTime']) {
+      const orig = p[m].bind(p);
+      p[m] = (v, ...rest) => orig(cl(v), ...rest);
+    }
+    if (valueDesc && valueDesc.get && valueDesc.set) {
+      Object.defineProperty(p, 'value', { configurable: true, get() { return valueDesc.get.call(p); }, set(v) { valueDesc.set.call(p, cl(v)); } });
+    }
+    return f;
+  };
+}
 
 export const audio = {
   ctx: null,
@@ -29,6 +58,8 @@ export const audio = {
   lockStreak: { n: 0, at: -9 },
   phase: null,
   hooked: false,
+  unlocked: false,
+  _style: null,
   intensityOverride: null,
   _resumeAt: 0,
 
@@ -58,11 +89,12 @@ export const audio = {
     let ac;
     try { ac = new AC({ latencyHint: 'interactive' }); } catch (e) { return false; }
     this.ac = ac;
+    clampBiquads(ac);
     this.buildGraph(ac);
     this.applyVolumes(true);
-    this.music_ = new MusicEngine(ac, this.musicLP);
+    this.music_ = new MusicEngine(ac, this.musicLP, { styleId: this.getMusicStyle() });
     this.startEngine();
-    ac.addEventListener?.('statechange', () => { if (ac.state === 'running') this.flushPending(); });
+    ac.addEventListener?.('statechange', () => { if (ac.state === 'running') this.markUnlocked(); });
     return true;
   },
 
@@ -91,15 +123,24 @@ export const audio = {
     this.musicIn.gain.setTargetAtTime(this.vol.music * 0.85 * this.duck, t, k);
   },
 
+  /** Call from a user gesture (the window listeners do it on the first key or click). Resolves to audio.unlocked. */
   unlock() {
     this.gesture = true;
-    if (!this.ensure()) return;
-    if (this.ac.state !== 'running') this.ac.resume().then(() => this.flushPending()).catch(() => {});
-    else this.flushPending();
+    if (!this.ensure()) return Promise.resolve(false);
+    if (this.ac.state === 'running') { this.markUnlocked(); return Promise.resolve(true); }
+    return this.ac.resume().then(() => { if (this.ac.state === 'running') this.markUnlocked(); return this.unlocked; }).catch(() => false);
+  },
+
+  /** The context is running after a gesture: start the remembered music and tell the UI once. */
+  markUnlocked() {
+    this.flushPending();
+    if (this.unlocked) return;
+    this.unlocked = true;
+    this.ctx?.events?.emit('audio:unlocked', { style: this.getMusicStyle() });
   },
 
   flushPending() {
-    if (this.wantMusic && this.music_ && !this.music_.curName) this.music_.play(this.wantMusic, { fade: 0.5 });
+    if (this.wantMusic && this.music_ && this.music_.curName !== this.wantMusic) this.music_.play(this.wantMusic, { fade: 0.5 });
   },
 
   // ==== public API
@@ -164,12 +205,28 @@ export const audio = {
     this.music_.play(name, { fade: name === 'boss' ? 0.5 : name === 'gameover' ? 0.4 : 1.3 });
   },
 
-  // Title music variants (B default, A and C selectable). See src/audio/title/registry.js.
-  titleVariants() { return titleVariantList(); },
-  getTitleVariant() { return selectedTitleVariant(); },
-  setTitleVariant(id) {
-    saveTitleVariant(id);
-    if (this.wantMusic === 'title' && this.ensure()) this.music_.play('title', { fade: 0.8, variant: id });
+  // Music styles (B default, A and C selectable). The style sets all music. See src/audio/styles/registry.js.
+  musicStyles() { return styleList(); },
+  getMusicStyle() { return (this._style ??= selectedStyle()); },
+  setMusicStyle(id) {
+    if (!styleList().some((s) => s.id === id)) return false;
+    const changed = id !== this.getMusicStyle();
+    this._style = id;
+    saveStyle(id);
+    this.music_?.setStyle(id, { fade: 0.9 });   // a playing track restarts in the new style with a crossfade
+    if (changed) this.ctx?.events?.emit('audio:style', { id });
+    return true;
+  },
+  // old names, still used by src/ui/screens.js
+  titleVariants() { return this.musicStyles(); },
+  getTitleVariant() { return this.getMusicStyle(); },
+  setTitleVariant(id) { return this.setMusicStyle(id); },
+
+  /** Debug hook: what is playing right now. */
+  debug() {
+    const m = this.music_;
+    const s = m ? m.status() : { track: null, playing: false, intensity: 0, loop: null, source: null };
+    return { style: this.getMusicStyle(), track: s.track, playing: s.playing, intensity: s.intensity, loop: s.loop, source: s.source, wanted: this.wantMusic, unlocked: this.unlocked, state: this.ac?.state ?? 'none' };
   },
 
   stopMusic(fade = 1) { this.wantMusic = null; this.music_?.stop(fade); },
@@ -267,7 +324,8 @@ export const audio = {
   subscribe(ev) {
     const on = (n, f) => ev.on(n, f);
     const pos = (p) => p?.position || p?.enemy?.position || undefined;
-    on('player:fire', (p) => this.auto(p?.charged || p?.homing ? 'chargedShot' : 'laser'));
+    on('player:fire', (p) => this.auto(p?.charged || p?.homing ? 'chargedShot' : p?.level >= 3 ? 'laser3' : p?.level === 2 ? 'laser2' : 'laser'));
+    on('shot:reflected', (p) => this.auto('reflect', { position: p?.shot?.position }));
     on('player:lockon', () => {
       const now = performance.now() / 1000;
       const s = this.lockStreak;
@@ -298,10 +356,11 @@ export const audio = {
       return r.pitch;
     };
     on('pickup:collected', (p) => {
-      if (p?.kind === 'shieldCell' || p?.kind === 'capacitor') this.auto('cell', { pitch: cellPitch() });
+      if (p?.kind === 'capacitor') this.auto('capacitor');
+      else if (p?.kind === 'shieldCell') this.auto('cell', { pitch: cellPitch() });
       else this.auto('pickup');
     });
-    on('cell:collected', () => this.auto('cell', { pitch: cellPitch() }));
+    on('cell:collected', (p) => (p?.kind === 'capacitor' ? this.auto('capacitor') : this.auto('cell', { pitch: cellPitch() })));
     on('warning', () => this.auto('warning'));
     on('boss:spawn', () => { this.auto('warning'); this.music('boss'); });
     on('boss:phase', () => this.auto('bossHit', { volume: 1.2, pitch: 0.7 }));

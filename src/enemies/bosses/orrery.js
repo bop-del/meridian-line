@@ -325,7 +325,7 @@ export class Orrery extends Boss {
     this.coreA.position.z = CAGE_Z + this.coreOut * 9;
     this.cm.rotation.y += dt * 1.3; this.cm.rotation.x += dt * 0.7;
     this.gimbal.rotation.z += dt * 0.9; this.gimbal.rotation.x += dt * 0.5;
-    this.coreHalo.scale.setScalar((this.core.exposed ? 18 : 3.5) + Math.sin(t * 8) * 1.2);
+    this.coreHalo.scale.setScalar((this.core.exposed ? 13 : 3.5) + Math.sin(t * 8) * 0.9);
     if (this.phase === 3 && Math.random() < dt * 6) ctx.fx?.smoke?.(this.core.position);
   }
 

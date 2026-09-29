@@ -1,8 +1,8 @@
 // Wingmen AI (vex, ferro, pip). Formation flying relative to the rail, target shooting with weak lasers,
-// loops and barrel rolls, damage and retreat, and the escort-in-trouble mechanic (a contact has an escort pinned, kill it in
+// loops and barrel rolls, damage and retreat, and the transponder-link mechanic (a contact jams an escort's link, clear it in
 // time). The trouble type rotates: tail contact, pinned at a gate, engine disabled, cut off by a barrier.
 //
-// API: allies.chaseMe(name, enemy, {time=18, kind}) starts the escort integrity timer (kind: 'tail'|'gate'|'engine'|'barrier',
+// API: allies.chaseMe(name, enemy, {time=18, kind}) starts the transponder link timer (kind: 'tail'|'gate'|'engine'|'barrier',
 // rotated automatically when omitted); allies.say(name, text) posts a comm line;
 // wingmen expose {name, label, hp, maxHp, state, alive}. Ally shots are fired via projectiles.firePlayerShot with
 // {owner:'ally', damage:0.6}. Events emitted: 'ally:down' {name}, 'ally:rescued' {name}, 'ally:retreat' {name}, 'ally:return' {name}.
@@ -23,26 +23,26 @@ const SPEAKER = { vex: 'VEX', ferro: 'FERRO', pip: 'PIP' };
 // drone that reports status codes as a readout (lowercase status codes). Placeholders: {hp} hull percent of the
 // speaker, {shield} player shield percent, {kills} kills this level.
 const TROUBLE = ['tail', 'gate', 'engine', 'barrier'];
-const TROUBLE_WARN = { tail: 'TAIL CONTACT', gate: 'PINNED AT GATE', engine: 'ENGINE DISABLED', barrier: 'CUT OFF BY BARRIER' };
+const TROUBLE_WARN = { tail: 'LINK JAMMED, TAIL CONTACT', gate: 'LINK BLOCKED AT GATE', engine: 'DRIVE FAULT, LINK FADING', barrier: 'LINK CUT BY BARRIER' };
 const LINES = {
   chase: {
     vex: {
-      tail: ['Lead, contact on my six, bearing 180. Requesting clearance.', 'Wing two, tail contact. Unable to shake.'],
-      gate: ['Wing two, pinned against the gate frame. Unable to manoeuvre.'],
-      engine: ['Wing two, port drive disabled. Thrust at forty percent.'],
-      barrier: ['Wing two, cut off by the barrier. No route forward.'],
+      tail: ['Lead, contact on my six, bearing 180. Transponder is jammed.', 'Wing two, tail contact. Link degrading, unable to shake.'],
+      gate: ['Wing two, wedged against the gate frame. Link blocked, unable to manoeuvre.'],
+      engine: ['Wing two, port drive fault. Thrust at forty percent, link fading.'],
+      barrier: ['Wing two, the barrier has cut my link. No route forward.'],
     },
     ferro: {
       tail: ['I have acquired a follower. He is very committed.', 'Something is on my tail. It has not introduced itself.'],
-      gate: ['I am wedged against a gate. Not my finest approach.'],
-      engine: ['The engine has left the conversation. I am drifting.'],
-      barrier: ['Barrier ahead, company behind. Geometrically unfortunate.'],
+      gate: ['I am wedged against a gate and my link is not enjoying it.'],
+      engine: ['The engine has left the conversation. The link is following it.'],
+      barrier: ['Barrier ahead, company behind, link cut. Geometrically unfortunate.'],
     },
     pip: {
-      tail: ['contact 4 on tail, evading', 'hostile lock, evasive pattern 2'],
-      gate: ['path blocked, gate 3 closed, holding'],
-      engine: ['engine fault E2, thrust 40 percent'],
-      barrier: ['barrier ahead, no route, hull {hp} percent'],
+      tail: ['contact 4 on tail, link jammed, evading', 'hostile lock, link noise rising'],
+      gate: ['path blocked, gate 3 closed, link blocked'],
+      engine: ['engine fault E2, thrust 40 percent, link fading'],
+      barrier: ['barrier ahead, link cut, hull {hp} percent'],
     },
   },
   rescued: {

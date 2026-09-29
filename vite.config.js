@@ -12,6 +12,7 @@ export default defineConfig({
       input: {
         main: resolve(import.meta.dirname, 'index.html'),
         musicLab: resolve(import.meta.dirname, 'music-lab.html'),
+        sfxLab: resolve(import.meta.dirname, 'sfx-lab.html'),
       },
     },
   },

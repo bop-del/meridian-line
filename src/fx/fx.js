@@ -92,8 +92,12 @@ export const fx = {
   // ---------- public API ----------
   explosion(pos, o = {}) {
     if (!this.add) return;
-    const s = o.scale ?? 1, big = !!o.big, hex = o.color ?? 0xffaa33;
-    const q = this._q();
+    const big = !!o.big, hex = o.color ?? 0xffaa33;
+    // during a boss fight the small blasts around the boss (drones, turrets, parts) are thinned so their fire and smoke do
+    // not pile up into a haze that hides the boss; the boss's own big blasts are left alone
+    const bossUp = !big && (this.ctx.state?.boss?.hp ?? 0) > 0;
+    const s = (o.scale ?? 1) * (bossUp ? 0.7 : 1);
+    const q = this._q() * (bossUp ? 0.6 : 1);
     const x = pos.x, y = pos.y, z = pos.z;
     const S = big ? s * 1.8 : s;
     // flash core

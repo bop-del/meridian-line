@@ -345,7 +345,8 @@ export const player = {
       });
       ctx.fx?.muzzleFlash?.(_m, _d);
     }
-    ctx.audio?.sfx?.('laser', { pitch: lvl === 3 ? 0.8 : 1 + (Math.random() - 0.5) * 0.08, volume: lvl === 3 ? 1 : 0.85 });
+    // each pulse level has its own sound (src/audio/sfx2/weapons.js); the recipes randomise pitch themselves
+    ctx.audio?.sfx?.(lvl >= 3 ? 'laser3' : lvl === 2 ? 'laser2' : 'laser', { volume: 0.9 });
     ctx.events.emit('player:fire', { level: lvl });
     return true;
   },

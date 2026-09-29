@@ -209,7 +209,10 @@ export const render = {
       u.uFlash.value = e.flash ?? clamp(flashAmt, 0, 1);
       u.uFlashColor.value.copy(f.color);
       u.uTint.value.copy(L.tint);
-      this.bloom.strength = L.bloom * (1 + this._boostSm * 0.1);
+      // less bloom while a boss is up, so the boss and its weak points stay readable through beams and shots
+      const bossUp = (st?.boss?.hp ?? 0) > 0 ? 1 : 0;
+      this._bossSm = damp(this._bossSm ?? 0, bossUp, 2.5, dt);
+      this.bloom.strength = L.bloom * (1 + this._boostSm * 0.1) * (1 - 0.4 * this._bossSm);
     }
     ctx.renderer.toneMappingExposure = L.exposure;
   },

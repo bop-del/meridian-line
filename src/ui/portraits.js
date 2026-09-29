@@ -1,5 +1,5 @@
 // Character portraits drawn with canvas 2d primitives (no images, no text glyphs).
-// Two helmeted pilots (VEX, FERRO) and one abstract waveform (REGENT). PIP, LUMEN, CONTROL and SABLE have no portrait:
+// One helmeted human pilot (VEX), one full-face visor helmet with a data-lens glyph and no eyes (FERRO), one abstract waveform (REGENT). PIP, LUMEN, CONTROL and SABLE have no portrait:
 // they use the text readout strip (see READOUTS). Each drawer receives (g, mouth, t) in a 96 x 96 space.
 
 const OUT = '#070b16';
@@ -151,53 +151,68 @@ const VEX = {
   },
 };
 
-// FERRO: a young navigator. Dark bob cut with a braid over one shoulder, a data lens over the right eye,
-// half-lidded deadpan eyes, freckles, a flat mouth.
-const HAIR = '#1b1620';
-const FERRO = {
-  seed: 2.9,
-  skin: '#b07850', skinDark: '#87573a', jawDrop: -2,
-  suit: '#26382c', trim: '#d4dfcf', accent: '#5ff08a',
-  shell: '#4f6b58', shellLight: '#7b9a84', shellDark: '#2b3f33',
-  visor: '#0e6a4a', visorLight: '#5ff08a', iris: '#2b6f4d',
-  visorY: 31, visorH: 21, visorR: 9, eyeR: 4.5, eyeSquint: 0.55, look: 0.5,
-  curve: 0.2, tilt: -0.6, mouthY: 71, mouthW: 5, mouthDx: 0.5,
-  brow: (s, cx, ey) => [cx - s * 5, ey - 5.6 + (s > 0 ? 0.6 : 0), cx + s * 5, ey - 5.2],
-  back(g) {
-    // hair mass behind the head and shoulders
-    poly(g, [21, 44, 20, 74, 26, 84, 34, 80, 34, 60], HAIR, OUT, 1.6);
-    poly(g, [75, 44, 76, 74, 70, 84, 62, 80, 62, 60], HAIR, OUT, 1.6);
-  },
-  shellDeco(g) {
-    // a plain shell with a single navigation stripe
-    poly(g, [44, 5, 52, 5, 51, 27, 45, 27], '#5ff08a', null);
-    line(g, [48, 6, 48, 26], 'rgba(255,255,255,0.5)', 1);
-    line(g, [28, 30, 30, 14], 'rgba(255,255,255,0.25)', 1.2);
-  },
-  face(g) {
-    // side locks over the cheeks and freckles
-    poly(g, [27, 56, 31, 56, 32, 72, 28, 78, 26, 70], HAIR, null);
-    poly(g, [69, 56, 65, 56, 64, 72, 68, 78, 70, 70], HAIR, null);
-    g.fillStyle = 'rgba(110,60,34,0.55)';
-    for (const [x, y] of [[40, 59.5], [43, 61], [38, 62], [53, 59.5], [56, 61], [58, 62]]) g.fillRect(x, y, 1.3, 1.3);
-    // a soft lip tint under the mouth line
-    ell(g, 48.4, 74.6, 3.6, 1.2, 'rgba(160,70,62,0.65)', null);
-  },
-  front(g, t) {
-    // data lens on a thin boom, over the right eye
-    line(g, [79, 46, 74, 36], 'rgba(20,30,26,0.9)', 1.6);
-    ell(g, 60.5, 43, 7.4, 7.4, 'rgba(95,240,138,0.16)', '#5ff08a', 1.4);
-    const sweep = (t * 0.7) % 1;
-    line(g, [54 + sweep * 13, 38, 54 + sweep * 13, 48], 'rgba(200,255,220,0.7)', 1);
-    // hair falling below the cheek guards
-    poly(g, [16, 60, 26, 62, 27, 76, 22, 84, 15, 78], HAIR, OUT, 1.4);
-    poly(g, [80, 60, 70, 62, 69, 76, 74, 84, 81, 78], HAIR, OUT, 1.4);
-    line(g, [19, 66, 20, 78], 'rgba(120,200,150,0.45)', 1.2);
-    // braid over the left shoulder
-    for (let i = 0; i < 5; i++) ell(g, 24 - i * 0.4, 74 + i * 5.4, 4.2 - i * 0.35, 3.2, i % 2 ? '#2b2436' : HAIR, OUT, 1.2);
-    ell(g, 22.4, 100, 2.4, 2.2, '#5ff08a', OUT, 1);
-  },
-};
+// FERRO: a full-face opaque visor helmet. No eyes, no mouth: the only "face" is a data-lens glyph on the visor (a ring lens
+// with a pulsing core and level bars either side that follow the voice). The deadpan lives in the words, not the drawing.
+function ferro(g, talk, t) {
+  const ACC = '#5ff08a';
+  // shoulders, collar ring and a neck seal
+  poly(g, [4, 96, 12, 84, 32, 78, 64, 78, 84, 84, 92, 96], '#26382c');
+  poly(g, [34, 80, 48, 92, 62, 80, 58, 76, 48, 82, 38, 76], '#d4dfcf', OUT, 1.5);
+  line(g, [15, 89, 29, 83], ACC, 2);
+  line(g, [81, 89, 67, 83], ACC, 2);
+  g.fillStyle = '#1b271f'; g.fillRect(38, 70, 20, 10);
+
+  // helmet shell: one closed shape from dome to chin guard
+  g.beginPath();
+  g.moveTo(25, 74); g.lineTo(19, 42);
+  g.bezierCurveTo(17, -2, 79, -2, 77, 42);
+  g.lineTo(71, 74); g.quadraticCurveTo(48, 90, 25, 74); g.closePath();
+  const sg = g.createLinearGradient(0, 4, 0, 84);
+  sg.addColorStop(0, '#86a58f'); sg.addColorStop(0.45, '#4f6b58'); sg.addColorStop(1, '#25382b');
+  g.fillStyle = sg; g.fill(); g.lineWidth = 2.4; g.strokeStyle = OUT; g.lineJoin = 'round'; g.stroke();
+  // dome highlight and a single navigation stripe
+  g.beginPath(); g.moveTo(25, 34); g.bezierCurveTo(27, 12, 44, 7, 58, 9); g.lineWidth = 2; g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineCap = 'round'; g.stroke();
+  poly(g, [45, 9, 51, 9, 50.5, 26, 45.5, 26], ACC, null);
+  // chin guard: vents and a seam
+  line(g, [34, 74, 62, 74], 'rgba(8,18,12,0.7)', 1.6);
+  for (let i = 0; i < 4; i++) line(g, [40 + i * 5.4, 77, 40 + i * 5.4, 81], 'rgba(8,18,12,0.75)', 1.6);
+  // ear pods
+  ell(g, 17, 52, 6, 10, '#2b3f33', OUT, 2);
+  ell(g, 79, 52, 6, 10, '#2b3f33', OUT, 2);
+  ell(g, 16.5, 52, 2.2, 4.5, ACC, null);
+  ell(g, 79.5, 52, 2.2, 4.5, ACC, null);
+
+  // opaque visor: a wide chamfered panel, glossy dark green glass, nothing behind it
+  const vx0 = 22, vx1 = 74, vy0 = 31, vy1 = 63;
+  const vis = [vx0 + 5, vy0, vx1 - 5, vy0, vx1, vy0 + 9, vx1 - 3, vy1, vx0 + 3, vy1, vx0, vy0 + 9];
+  g.beginPath(); g.moveTo(vis[0], vis[1]); for (let i = 2; i < vis.length; i += 2) g.lineTo(vis[i], vis[i + 1]); g.closePath();
+  const vg = g.createLinearGradient(0, vy0, 0, vy1);
+  vg.addColorStop(0, '#0f3a2a'); vg.addColorStop(0.5, '#06170f'); vg.addColorStop(1, '#03090a');
+  g.fillStyle = vg; g.fill(); g.lineWidth = 2.6; g.strokeStyle = OUT; g.stroke();
+  // frame accent along the lower edge
+  line(g, [vx0 + 4, vy1 + 2, vx1 - 4, vy1 + 2], ACC, 1.5);
+  // glass glints
+  poly(g, [27, 60, 34, 34, 40, 34, 33, 60], 'rgba(255,255,255,0.10)', null);
+  poly(g, [43, 60, 46, 34, 49, 34, 46, 60], 'rgba(255,255,255,0.06)', null);
+
+  // data-lens glyph: ring, pulsing core, sweeping arc, level bars either side
+  const cx = 48, cy = 47;
+  const pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
+  g.beginPath(); g.arc(cx, cy, 9.5, 0, TAU); g.lineWidth = 1.6; g.strokeStyle = 'rgba(95,240,138,0.85)'; g.stroke();
+  g.beginPath(); g.arc(cx, cy, 5.2, 0, TAU); g.lineWidth = 1; g.strokeStyle = 'rgba(95,240,138,0.45)'; g.stroke();
+  const sw = t * 1.3;
+  g.beginPath(); g.arc(cx, cy, 9.5, sw, sw + 1.1); g.lineWidth = 3; g.strokeStyle = '#d8ffe6'; g.lineCap = 'round'; g.stroke();
+  ell(g, cx, cy, 2.4 + pulse * 0.9 + talk * 1.2, 2.4 + pulse * 0.9 + talk * 1.2, 'rgba(160,255,190,0.95)', null);
+  for (const s of [-1, 1]) {
+    for (let i = 0; i < 4; i++) {
+      const len = 3 + i * 1.6 + (talk * 5) * (1 - i * 0.18) + Math.sin(t * 5 + i * 1.7 + (s > 0 ? 1.1 : 0)) * 0.7 * (0.3 + talk);
+      const x0 = cx + s * (14 + i * 2.3);
+      line(g, [x0, cy - len, x0, cy + len], `rgba(95,240,138,${0.85 - i * 0.16})`, 1.5);
+    }
+  }
+  // small tick marks above the lens
+  for (let i = -2; i <= 2; i++) line(g, [cx + i * 5, vy0 + 5, cx + i * 5, vy0 + (i === 0 ? 9 : 7)], 'rgba(95,240,138,0.5)', 1);
+}
 
 // THE REGENT: an abstract waveform, no face and no eye. A stack of horizontal traces under a lens-shaped envelope;
 // the amplitude follows the voice.
@@ -230,7 +245,7 @@ function regent(g, talk, t) {
 
 export const PORTRAITS = {
   VEX: { draw: (g, m, t) => pilot(g, VEX, m, t), bg: ['#2a1a44', '#0f0a1c'], accent: '#c88bff', label: 'VEX' },
-  FERRO: { draw: (g, m, t) => pilot(g, FERRO, m, t), bg: ['#173226', '#08130d'], accent: '#5ff08a', label: 'FERRO' },
+  FERRO: { draw: ferro, bg: ['#173226', '#08130d'], accent: '#5ff08a', label: 'FERRO' },
   REGENT: { draw: regent, bg: ['#1a1440', '#07051a'], accent: '#ff9a5a', label: 'REGENT' },
 };
 

@@ -96,12 +96,12 @@ export const projectiles = {
     const cap = new THREE.CapsuleGeometry(1, 1, 3, 10); cap.rotateX(Math.PI / 2);
     this.boltShell = makeInstanced(cap, makeMat(0.92, false), MAX_PLAYER + MAX_ENEMY);
     this.boltCore = makeInstanced(cap, makeMat(1), MAX_PLAYER + MAX_ENEMY);
-    this.boltGlow = makeInstanced(cap, makeMat(0.28), MAX_PLAYER + MAX_ENEMY);
+    this.boltGlow = makeInstanced(cap, makeMat(0.2), MAX_PLAYER + MAX_ENEMY);
     // orbs
     const sph = new THREE.SphereGeometry(1, 14, 10);
     this.orbShell = makeInstanced(sph, makeMat(0.92, false), MAX_ENEMY + MAX_PLAYER);
     this.orbCore = makeInstanced(sph, makeMat(1), MAX_ENEMY + MAX_PLAYER);
-    this.orbGlow = makeInstanced(sph, makeMat(0.34), MAX_ENEMY + MAX_PLAYER);
+    this.orbGlow = makeInstanced(sph, makeMat(0.24), MAX_ENEMY + MAX_PLAYER);
     // trails: cone, base (width 1) at z=0 tapering to tip at z=1 (points behind the motion)
     const cone = new THREE.ConeGeometry(1, 1, 10, 1, true); cone.rotateX(Math.PI / 2); cone.translate(0, 0, 0.5);
     this.trailMesh = makeInstanced(cone, makeMat(0.55), MAX_TRAIL);
@@ -249,8 +249,11 @@ export const projectiles = {
     }
     shot.velocity.copy(_v).multiplyScalar(speed);
     shot.kind = 'homing'; shot.radius = Math.max(shot.radius, 0.9);
-    this.setColor(shot, 0xd0fff4, 2.8, 0x33ffd0, 1.4, 0x10c8a0);
-    shot.trail = 6;
+    // a reflected heavy shell keeps its hit radius but not its bloom: a thin teal glow and a smaller core, so the boss and the
+    // reticle stay readable behind it
+    this.setColor(shot, 0xd0fff4, 1.9, 0x33ffd0, 0.85, 0x10c8a0);
+    shot.size = Math.min(shot.size, 0.7);
+    shot.trail = 5;
     return true;
   },
 
@@ -411,7 +414,8 @@ export const projectiles = {
         nb++;
       } else {
         const pulse = 1 + Math.sin(t * 22 + s.pulse) * 0.1;
-        const r = s.radius * (s.kind === 'homing' ? 0.7 : 0.85) * pulse * s.size;
+        // visual radius is capped so heavy boss shells do not bloom into a screen-filling disc (the hit radius is unchanged)
+        const r = Math.min(s.reflected ? 1.4 : 2.6, s.radius * (s.kind === 'homing' ? 0.7 : 0.85) * pulse * s.size);
         _s.set(r, r, r);
         _q.identity();
         _m.compose(s.position, _q, _s);
@@ -420,7 +424,7 @@ export const projectiles = {
         _s.set(sh, sh, sh);
         _m.compose(s.position, _q, _s);
         os.setMatrixAt(no, _m); os.setColorAt(no, s.shell);
-        const g = r * (s.owner === 'enemy' ? 3.0 : 2.4);
+        const g = r * (s.owner === 'enemy' ? 2.4 : 1.9);
         _s.set(g, g, g);
         _m.compose(s.position, _q, _s);
         og.setMatrixAt(no, _m); og.setColorAt(no, s.glow);

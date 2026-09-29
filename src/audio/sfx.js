@@ -1,6 +1,8 @@
 // Procedural sound effects. Each definition receives an env {ac, out, t, v, p, r} and returns its duration in seconds.
 //   ac: AudioContext, out: node to connect to, t: start time, v: volume multiplier, p: pitch multiplier, r: random() function
 import { tone, noise } from './synth.js';
+import { WEAPON_SFX, WEAPON_META } from './sfx2/weapons.js';
+import { IMPACT_SFX, IMPACT_META } from './sfx2/impacts.js';
 
 const N = (e, o) => noise(e.ac, e.out, o);
 const T = (e, o) => tone(e.ac, e.out, o);
@@ -12,7 +14,7 @@ function boom(e, t, s = 1, v = 1) {
   for (let i = 0; i < 3; i++) N(e, { t: t + 0.05 + e.r() * 0.35 * s, dur: 0.05, vol: 0.14 * v * e.v, type: 'highpass', f0: 3500 + e.r() * 3000, q: 0.5 });
 }
 
-export const SFX = {
+const LEGACY_SFX = {
   laser(e) {
     const p = e.p * (0.94 + e.r() * 0.14);
     T(e, { t: e.t, dur: 0.14, vol: 0.3 * e.v, type: 'sawtooth', f0: 2300 * p, f1: 380 * p, sweep: 0.8, lp: 7000 });
@@ -162,10 +164,13 @@ export const SFX = {
     return 0.7;
   },
 };
-SFX.ring = SFX.cell; // alias for older callers
+LEGACY_SFX.ring = LEGACY_SFX.cell; // alias for older callers
+
+// Sounds in ./sfx2/ (weapons.js, impacts.js) override the legacy recipes of the same name.
+export const SFX = { ...LEGACY_SFX, ...WEAPON_SFX, ...IMPACT_SFX };
 
 // name -> {gap: min seconds between plays, max: concurrent voices, prio: higher survives voice stealing, group: dedupe group}
-export const SFX_META = {
+const LEGACY_META = {
   laser: { gap: 0.04, max: 6, prio: 1, gain: 0.75 },
   laserCharge: { gap: 0.2, max: 1, prio: 2 },
   lockon: { gap: 0.05, max: 6, prio: 2 },
@@ -190,3 +195,4 @@ export const SFX_META = {
   enemyShot: { gap: 0.05, max: 5, prio: 1 },
   whoosh: { gap: 0.15, max: 2, prio: 2 },
 };
+export const SFX_META = { ...LEGACY_META, ...WEAPON_META, ...IMPACT_META };

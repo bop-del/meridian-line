@@ -13,6 +13,7 @@ import { G, makeStd, part, merged, mesh, glowSprite, beamGeo } from '../models.j
 import { leadDir } from '../aim.js';
 
 const PI2 = Math.PI / 2, A60 = Math.PI / 3, S = 2.2, BODY_Z = 12, H = 19, R = 6, EM_R = 8.4, EM_R_FAR = 15.5, NEM = 4;
+const LOWER = 0.6;
 const EM_TINT = [0x59d4ff, 0xb08cff, 0xff7ac8, 0xffd070];
 const EM_COMP = [0xff7ac8, 0x59d4ff, 0xffd070, 0xb08cff];
 const SEED_HP = 48, EM_HP = 14;
@@ -20,14 +21,14 @@ const FWD = new THREE.Vector3(0, 0, 1), UPV = new THREE.Vector3(0, 1, 0), YAXIS 
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _t = new THREE.Vector3(), _q = new THREE.Vector3(), _s = new THREE.Vector3(), _u = new THREE.Vector3(), _c = new THREE.Vector3();
 
 // Black glass with blue reflections, cold light seams and a white-hot seed.
-const GLASS = makeStd(0x0a1226, { fog: false, emissive: 0x0f2a66, metalness: 0.9, roughness: 0.16 });
-const GLASS_L = makeStd(0x16264a, { fog: false, emissive: 0x143480, metalness: 0.85, roughness: 0.2 });
+const GLASS = makeStd(0x0a1226, { fog: false, emissive: 0x143680, metalness: 0.9, roughness: 0.16 });
+const GLASS_L = makeStd(0x1a2c54, { fog: false, emissive: 0x1a44a0, metalness: 0.85, roughness: 0.2 });
 const SHARD = makeStd(0x14224a, { fog: false, emissive: 0x3a6cff, metalness: 0.8, roughness: 0.2 });
 const glowMat = (hex, i = 2.8) => new THREE.MeshStandardMaterial({ color: 0x0a1018, emissive: hex, emissiveIntensity: i, roughness: 0.4, metalness: 0, flatShading: true, fog: false });
 const FROST = glowMat(0x9fd0ff, 1.5);
 const SEEDMAT = glowMat(0xeaffff, 3.4);
 const edgeMat = (hex, o = 0.85) => new THREE.LineBasicMaterial({ color: hex, transparent: true, opacity: o, fog: false });
-const EDGE = edgeMat(0x8cc4ff);
+const EDGE = edgeMat(0xb4dcff, 1);   // bright seams: the dark glass reads through its edges
 
 /** One sector of the bipyramid: a tetrahedron (apex, centre, two equator points), recentred on its centroid. */
 const PIECE = (() => {
@@ -70,9 +71,11 @@ export class Regent extends Boss {
     for (let n = 0; n < 12; n++) {
       const k = n % 6, up = n < 6, flip = up ? 1 : -1;
       const pg = new THREE.Group(); this.crystal.add(pg);
-      const m = mesh(PIECE.geo, (n % 2) ? GLASS_L : GLASS, pg); m.rotation.y = -k * A60; m.scale.y = flip;
+      // the lower pyramid is shorter (LOWER) so the foot spike stays above the Foundry floor plane
+      const yk = flip * (up ? 1 : LOWER);
+      const m = mesh(PIECE.geo, (n % 2) ? GLASS_L : GLASS, pg); m.rotation.y = -k * A60; m.scale.y = yk;
       const e = new THREE.LineSegments(PIECE.edges, EDGE); m.add(e);
-      const home = PIECE.cen.clone(); home.y *= flip; home.applyAxisAngle(YAXIS, -k * A60);
+      const home = PIECE.cen.clone(); home.y *= yk; home.applyAxisAngle(YAXIS, -k * A60);
       pg.position.copy(home);
       this.pieces.push({ pg, m, home, k, up, ph: k * A60 + (up ? 0 : 0.5), ring: up ? 0 : 1, spin: (n % 3 - 1) * 0.5 + 0.4 });
     }
@@ -86,8 +89,8 @@ export class Regent extends Boss {
     this.cage = new THREE.Group(); this.seedG.add(this.cage);
     this.cageMat = FROST.clone();
     this.cageRings = [0, 1, 2].map((i) => { const r = mesh(G.tor(1, 0.07, 4, 40), this.cageMat, this.cage); r.rotation.set(i * A60, i * A60 * 1.6, 0); return r; });
-    this.seedHalo = glowSprite(0xcdeaff, 12, this.seedG);
-    this.seedGlow = this.makeGlow(0xe8fbff, 26, this.seedG, 0, 0, 3);
+    this.seedHalo = glowSprite(0xcdeaff, 7, this.seedG);
+    this.seedGlow = this.makeGlow(0xe8fbff, 17, this.seedG, 0, 0, 3);
     this.seed = this.addPart(this.seedG, { name: 'coreSeed', radius: 4.6 * S, hp: SEED_HP, points: 2500, critical: true, exposed: false, explScale: 7, explColor: 0xcfe8ff, debrisColor: 0x22417e }, [seedMesh]);
 
     // four prism emitters on an orbit ring. Each is a triangular glass prism with an iris lens on its front.
@@ -102,11 +105,11 @@ export class Regent extends Boss {
       mesh(merged('rgLens', [part(G.cyl(1.35, 1.35, 0.3, 18), 0, 0, 0, PI2)]), lensMat, lens);
       const iris = new THREE.Group(); iris.position.z = 0.25; lens.add(iris);
       const leaves = [0, 1, 2, 3].map((k) => { const lg = new THREE.Group(); lg.rotation.z = k * PI2; iris.add(lg); const lf = mesh(LEAF, GLASS, lg); lf.position.x = 0.55; return lf; });
-      const halo = glowSprite(tint, 9, lens, 0, 0, 0.6);
+      const halo = glowSprite(tint, 5.5, lens, 0, 0, 0.6);
       const bmat = (hex, op) => new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity: op, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide });
       const beams = [mesh(beamGeo, bmat(new THREE.Color(tint).lerp(new THREE.Color(0xffffff), 0.4), 0.5), this.ctx.scene), mesh(beamGeo, bmat(tint, 0.42), this.ctx.scene), mesh(beamGeo, bmat(EM_COMP[i], 0.42), this.ctx.scene)];
       beams.forEach((m) => { m.visible = false; });
-      const glow = this.makeGlow(tint, 20, lens, 0, 0, 1.2);
+      const glow = this.makeGlow(tint, 14, lens, 0, 0, 1.2);
       const p = this.addPart(eg, { name: 'prismEmitter', radius: 4.0 * S, hp: EM_HP, points: 500, critical: true, exposed: false, explScale: 4, explColor: tint, debrisColor: 0x22417e }, [bodyM]);
       const em = { p, eg, bodyM, edgeM, lens, lensMat, iris, leaves, halo, glow, beams, tint, i, th: 0.2 + i * PI2, st: 'closed', t: 0, open: 0, dead: false, bolt: 0, hitCd: 0, over: 0 };
       p.em = em; this.ems.push(em);
@@ -429,7 +432,7 @@ export class Regent extends Boss {
       const a = pc.ph + t * spin * (pc.ring ? -1 : 1), Ro = 8 + pc.ring * 3.2 + Math.sin(t * 0.8 + pc.k) * 0.8, yo = (pc.ring ? -1 : 1) * (3.5 + 2 * Math.sin(t * 0.7 + pc.k));
       _o.set(Math.cos(a) * Ro, yo + Math.sin(a) * 2.5, Math.sin(a) * Ro);
       pc.pg.position.lerpVectors(pc.home, _o, e);
-      const sc = 1 - 0.42 * e; pc.m.scale.set(sc, sc * (pc.up ? 1 : -1), sc);
+      const sc = 1 - 0.42 * e; pc.m.scale.set(sc, sc * (pc.up ? 1 : -(LOWER + (1 - LOWER) * e)), sc);
       pc.m.rotation.x = e * Math.sin(t * pc.spin + pc.k) * 0.9; pc.m.rotation.z = e * Math.cos(t * pc.spin * 0.8 + pc.k) * 0.7;
     }
     this.equator.scale.setScalar(1 + e * 0.5); this.equator.rotation.z += dt * 0.4;
@@ -439,7 +442,7 @@ export class Regent extends Boss {
     const cs = 3.3 + this.cageOpen * 3.6; this.cage.scale.setScalar(cs);
     this.cageRings[0].rotation.x += dt * 1.2; this.cageRings[1].rotation.y += dt * 0.9; this.cageRings[2].rotation.z -= dt * 1.1;
     this.cageMat.emissiveIntensity = 0.8 + this.cageOpen * 1.6;
-    this.seedHalo.scale.setScalar((p1 ? 7 : 8) + this.cageOpen * 12 + (this.phase === 3 ? 3 : 0) + Math.sin(t * 7) * 1.0);
+    this.seedHalo.scale.setScalar((p1 ? 5 : 6) + this.cageOpen * 8 + (this.phase === 3 ? 2 : 0) + Math.sin(t * 7) * 0.7);
     this.seedG.rotation.y += dt * 0.8;
     // emitters
     const far = this.phase >= 2 ? 1 : 0; this.orbFar = (this.orbFar ?? 0) + (far - (this.orbFar ?? 0)) * Math.min(1, dt * 1.2);
@@ -459,7 +462,7 @@ export class Regent extends Boss {
       em.iris.rotation.z = em.open * 0.9 + (em.st === 'open' ? Math.sin(t * 3) * 0.05 : 0);
       const live = em.dead ? em.over * 0.5 + (this.phase === 3 ? 0.35 : 0) : 0.4 + em.open * 2.6 + (em.p.flashT || 0) * 1.5;
       em.lensMat.emissiveIntensity = live + (this.phase === 3 && em.dead ? 0.6 + Math.sin(t * 9 + em.i) * 0.5 : 0);
-      em.halo.scale.setScalar(6 + live * 4 + em.over * 6);
+      em.halo.scale.setScalar(3.6 + live * 1.9 + em.over * 3);
       em.p.exposed = !em.dead && em.st === 'open' && em.open > 0.8;
       if (em.dead && this.phase === 3) { em.edgeM.opacity = 0.5 + 0.4 * Math.sin(t * 9 + em.i); em.bodyM.material.emissive.setHex(em.tint); em.bodyM.material.emissiveIntensity = 0.25 + em.over * 0.9; }
     }

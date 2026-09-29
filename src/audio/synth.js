@@ -110,6 +110,7 @@ export function noise(ac, out, o) {
     f.frequency.exponentialRampToValueAtTime(f1, t + dur);
   } else if (f1 !== f0) f.frequency.exponentialRampToValueAtTime(f1, t + dur);
   const g = ac.createGain();
+  g.gain.value = 0.0001; // silent before the envelope starts, so a source that begins one frame early cannot click
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(vol, t + Math.max(a, 0.001));
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);

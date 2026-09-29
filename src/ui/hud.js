@@ -1,16 +1,28 @@
 // In-game HUD. All elements are cached, values are written only on change.
 // Layout: lives top-left; score and KILLS counter top-centre with the boss bar under them; shield (vertical) with boost
-// beside it on the left edge, bombs and pulse level under that block; escort integrity readout top-right;
+// beside it on the left edge, bombs and pulse level under that block; transponder link readout top-right;
 // comm and readout strips bottom-right (see comm.js); hint line bottom-centre.
 import { h, setText, setClass, fmt, safeAnimate } from './dom.js';
 
 const SEGMENTS = 20;
 const MAX_LOCKS = 6;
-const POP_POOL = 14;
-const POP_MERGE_WINDOW = 0.4; // seconds: kills at one spot inside this window add into a single popup
+const POP_POOL = 10;
+const POP_MAX_ACTIVE = 3;     // popups on screen at once; more kills add into the nearest one
+const POP_MERGE_WINDOW = 0.9; // seconds: kills at one target or spot inside this window add into a single popup
+const POP_LIFE = 0.9;
 const CHAIN_WINDOW = 2.4;
+const TOAST_LIFE = 1.5;
+const TOAST_DEDUPE = 1.5;     // same text inside this window shows once
+const LINK_BARS = 5;
 
-const TROUBLE_TEXT = { gate: 'PINNED AT GATE', engine: 'ENGINE DISABLED', barrier: 'CUT OFF BY BARRIER', tail: 'TAIL CONTACT' };
+// hexagon frame: six edges with small gaps at the corners, plus a faint inner hexagon that counter-rotates
+const HEX_PTS = (r) => Array.from({ length: 6 }, (_, i) => { const a = (Math.PI / 3) * i - Math.PI / 2; return (Math.cos(a) * r).toFixed(2) + ',' + (Math.sin(a) * r).toFixed(2); }).join(' ');
+const HEX_SVG = '<svg viewBox="-50 -50 100 100" aria-hidden="true">'
+  + '<polygon class="hx-in" points="' + HEX_PTS(35) + '"/>'
+  + '<polygon class="hx" points="' + HEX_PTS(47) + '"/></svg>';
+
+// what jams the escort's transponder link, shown next to its name
+const TROUBLE_TEXT = { gate: 'BLOCKED BY GATE', engine: 'DRIVE FAULT', barrier: 'CUT BY BARRIER', tail: 'JAMMED BY CONTACT' };
 
 export class Hud {
   constructor(ctx, parent) {
@@ -22,10 +34,12 @@ export class Hud {
     this.alarmT = 0;
     this.popIdx = 0;
     this.toastCool = new Map();
+    this.toastQueue = [];
     this.lockOwners = new Array(MAX_LOCKS).fill(null);
     this.lastWarn = -99; this.clock = 0;
     this.hintT = 0; this.hintText = ''; this.hintAt = -9;
     this.escortRows = new Map();
+    this.escortShown = 0;
     this.build(parent);
     this.measure();
     this.bind();
@@ -70,11 +84,11 @@ export class Hud {
     this.bossFill = h('i', 'fill', null, bbar);
     this.bossLag._v = 1;
 
-    // top right: level name and the escort integrity readout
+    // top right: level name and the transponder link readout
     const tr = h('div', 'h-tr', null, root);
     this.levelEl = h('div', 'h-level', '', tr);
     this.escortEl = h('div', 'h-escort', null, tr);
-    h('div', 'lbl', 'ESCORT INTEGRITY', this.escortEl);
+    h('div', 'lbl', 'TRANSPONDER LINK', this.escortEl);
     this.escortList = h('div', 'h-escort-list', null, this.escortEl);
 
     // left edge: vertical shield bar with boost beside it, bombs and pulse level below
@@ -111,13 +125,13 @@ export class Hud {
     this.hitMarker = h('div', 'h-hitmarker', null, root);
     for (let i = 0; i < 4; i++) h('i', 'hm' + i, null, this.hitMarker);
 
-    // lock-on indicators: amber rotating diamond ticks with a number badge
+    // lock-on indicators: a slowly rotating hexagon frame (broken into six arcs) with a numbered pip
     this.locks = [];
     for (let i = 0; i < MAX_LOCKS; i++) {
       const l = h('div', 'h-lock', null, root);
       const inner = h('div', 'in', null, l);
       const spin = h('div', 'spin', null, inner);
-      for (const c of ['n', 'e', 's', 'w']) h('i', 'd ' + c, null, spin);
+      spin.innerHTML = HEX_SVG;
       l._num = h('b', 'num', String(i + 1), inner);
       l._in = inner; l._vis = false;
       this.locks.push(l);
@@ -179,7 +193,8 @@ export class Hud {
     this.hideLocks(0);
     this.ret.style.opacity = '0';
     this.vignette.style.opacity = '0';
-    this.escortList.textContent = ''; this.escortRows.clear();
+    this.escortList.textContent = ''; this.escortRows.clear(); this.escortShown = 0;
+    this.toastQueue.length = 0;
     setClass(this.escortEl, 'on', false);
     setText(this.chainEl, '');
   }
@@ -222,7 +237,7 @@ export class Hud {
     const pos = p?.position || p?.enemy?.position;
     if (pos && pts) {
       const s = this.project(pos);
-      if (s) this.pop(s.x, s.y, pts);
+      if (s) this.pop(s.x, s.y, pts, p?.enemy?.boss ?? p?.enemy?.parent ?? p?.enemy ?? null);
     }
   }
 
@@ -243,27 +258,58 @@ export class Hud {
     safeAnimate(this.flash, [{ opacity: alpha }, { opacity: 0 }], { duration: ms, easing: 'ease-out' });
   }
 
+  // Toasts: the same text inside TOAST_DEDUPE shows once (a pickup can fire two events). While the HUD is full (two of
+  // banner, transponder panel and comm are up) a toast waits in a short queue instead of piling on.
   toast(text, kind = 'good') {
     const now = this.clock;
-    if (this.toastCool.get(text) > now - 0.35) return;
+    if (this.toastCool.get(text) > now - TOAST_DEDUPE) return;
     this.toastCool.set(text, now);
-    const t = h('div', 'toast ' + kind, text, this.toasts);
-    while (this.toasts.childElementCount > 2) this.toasts.firstChild.remove();
-    setTimeout(() => t.remove(), 1500);
+    if (this.crowded()) {
+      if (this.toastQueue.length < 3) this.toastQueue.push({ text, kind, at: now });
+      return;
+    }
+    this.showToast(text, kind);
   }
 
-  // A small unobtrusive prompt line for control tips: hint('FLIP: Q or E deflects incoming fire', 4).
-  // Text before the first colon (up to 16 characters) is shown as a label.
-  hint(text, duration = 4) {
-    text = String(text || '').trim();
+  showToast(text, kind) {
+    const t = h('div', 'toast ' + kind, text, this.toasts);
+    while (this.toasts.childElementCount > 2) this.toasts.firstChild.remove();
+    setTimeout(() => t.remove(), TOAST_LIFE * 1000);
+  }
+
+  // ==== clutter control: banner, transponder panel, comm and toasts. At most two are up at the same moment.
+  // Priority: banner, transponder panel, comm, toasts. Comm holds its message and toasts queue while the HUD is full.
+  layersUp() {
+    return (this.annCur ? 1 : 0) + (this.escortShown > 0 ? 1 : 0);
+  }
+
+  commBlocked() { return this.layersUp() >= 2; }
+
+  crowded() { return this.layersUp() + (this.ctx.ui?.commBox?.visible ? 1 : 0) >= 2; }
+
+  tickToasts() {
+    const q = this.toastQueue;
+    if (!q.length) return;
+    while (q.length && this.clock - q[0].at > 3) q.shift();
+    if (q.length && !this.crowded()) { const t = q.shift(); this.showToast(t.text, t.kind); }
+  }
+
+  // A small unobtrusive prompt line for control tips: hint('CHARGE: hold SPACE, release', 4) or, with an explicit label,
+  // hint('hold SPACE, release', 4, 'CHARGE'). Without a label the text is split at the colon only when there is exactly one
+  // colon and what precedes it is a single short word; anything else is shown whole.
+  hint(text, duration = 4, label = null) {
+    text = String(text || '').replace(/\s+/g, ' ').trim();
     if (!text) return;
     if (text === this.hintText && this.clock - this.hintAt < 1) return;
     this.hintText = text; this.hintAt = this.clock;
-    const i = text.indexOf(':');
-    const hasLabel = i > 0 && i <= 16;
-    setText(this.hintLabel, hasLabel ? text.slice(0, i) : '');
-    setText(this.hintBody, hasLabel ? text.slice(i + 1).trim() : text);
-    this.hintLabel.style.display = hasLabel ? '' : 'none';
+    let lab = label ? String(label).trim() : '', body = text;
+    if (!lab) {
+      const i = text.indexOf(':');
+      if (i > 0 && text.indexOf(':', i + 1) < 0 && i <= 12 && !/\s/.test(text.slice(0, i))) { lab = text.slice(0, i); body = text.slice(i + 1).trim(); }
+    }
+    setText(this.hintLabel, lab);
+    setText(this.hintBody, body);
+    this.hintLabel.style.display = lab ? '' : 'none';
     this.hintT = Math.max(1.2, Number(duration) || 4);
     this.hintEl.classList.remove('on'); void this.hintEl.offsetWidth; this.hintEl.classList.add('on');
   }
@@ -321,44 +367,76 @@ export class Hud {
     if (next) this.showAnn(next);
   }
 
-  // Score popups. Kills at one spot inside POP_MERGE_WINDOW add into a single popup, so a volley reads as one number
-  // instead of a stack of overlapping ones.
-  pop(x, y, pts) {
+  // Score popups. Kills at one target or spot inside POP_MERGE_WINDOW add into a single popup, at most POP_MAX_ACTIVE are up at
+  // once (more kills add into the nearest live one), they stagger vertically, and they stay out of the banner and boss bar.
+  pop(x, y, pts, key = null) {
     const now = this.clock;
-    const R = Math.max(70, this.H * 0.11);
-    for (let i = 0; i < POP_POOL; i++) {
+    const R = Math.max(80, this.H * 0.13);
+    const live = [];
+    for (let i = 0; i < POP_POOL; i++) { const st = this.popState[i]; if (st && now - st.t < POP_LIFE) live.push(i); }
+    // same target, or close by: add into the existing popup
+    let best = -1, bd = 1e9;
+    for (const i of live) {
       const st = this.popState[i];
-      if (!st || now - st.t > POP_MERGE_WINDOW) continue;
-      if (Math.abs(st.x - x) > R || Math.abs(st.y - y) > R) continue;
+      const d = Math.hypot(st.x - x, st.y - y);
+      const same = key != null && st.key === key;
+      if ((same || (now - st.t < POP_MERGE_WINDOW && d < R)) && d < bd) { best = i; bd = d; }
+    }
+    // full: fold into the most recent popup
+    if (best < 0 && live.length >= (this.ctx.state?.boss ? 2 : POP_MAX_ACTIVE)) best = live.reduce((a, i) => (this.popState[i].t > this.popState[a].t ? i : a), live[0]);
+    if (best >= 0) {
+      const st = this.popState[best];
       st.pts += pts; st.n++; st.t = now;
-      this.showPop(i);
+      this.showPop(best);
       return;
     }
     const i = this.popIdx++ % POP_POOL;
-    // keep clear of popups that are still floating up nearby (account for how far they have already risen)
+    // stagger: step up until clear of popups that are still floating nearby (allowing for how far they have risen)
+    const rise = (st) => 44 * Math.min(1, (now - st.t) / POP_LIFE);
     let py = y;
-    const rise = (st) => 44 * Math.min(1, (now - st.t) / 0.9);
     for (let tries = 0; tries < 4; tries++) {
-      const clash = this.popState.some((st, j) => st && j !== i && now - st.t < 0.9 && Math.abs(st.x - x) < R && Math.abs(st.y - rise(st) - py) < 42);
+      const clash = this.popState.some((st, j) => st && j !== i && now - st.t < POP_LIFE && Math.abs(st.x - x) < R && Math.abs(st.y - rise(st) - py) < 42);
       if (!clash) break;
       py -= 44;
     }
-    this.popState[i] = { x, y: py, pts, n: 1, t: now };
+    py = this.clearOfBanners(x, py);
+    this.popState[i] = { x, y: py, pts, n: 1, t: now, key };
     this.showPop(i);
+  }
+
+  // push a popup position out of the warning banner and the boss bar (the popup then rises 54px, so leave room)
+  clearOfBanners(x, y) {
+    const H = this.H;
+    const bands = [];
+    if (this.annCur) {
+      const el = this.annCur.kind === 'banner' ? this.bannerEl : this.warnEl;
+      const r = el.getBoundingClientRect();
+      if (r.height > 0) bands.push([r.top - 8, r.bottom + 8]);
+    }
+    if (this.ctx.state?.boss) {
+      const r = this.bossEl.getBoundingClientRect();
+      bands.push([0, Math.max(r.bottom + 6, H * 0.14)]);
+    }
+    for (const [t, b] of bands) {
+      // rises 54px from y: the whole travel range [y - 54, y + 22] must miss the band
+      if (y + 22 > t && y - 54 < b) y = b + 58 < H * 0.86 ? b + 58 : t - 26;
+    }
+    return Math.max(40, Math.min(H * 0.9, y));
   }
 
   showPop(i) {
     const st = this.popState[i], p = this.pops[i];
-    p.className = 'h-pop' + (st.n >= 3 || this.chain >= 4 ? ' big' : '');
+    // size follows the value: small kills stay small, big values and combo totals are larger
+    p.className = 'h-pop' + (st.pts >= 500 || st.n >= 4 || (st.n >= 3 && st.pts >= 300) ? ' big' : st.pts < 200 && st.n < 3 ? ' sm' : '');
     p.textContent = '+' + fmt(st.pts);
-    p.style.left = st.x.toFixed(0) + 'px';
+    p.style.left = Math.max(40, Math.min(this.W - 40, st.x)).toFixed(0) + 'px';
     p.style.top = st.y.toFixed(0) + 'px';
     p.getAnimations?.().forEach((a) => a.cancel());
     safeAnimate(p, [
       { opacity: 0, transform: 'translate(-50%,0) scale(0.6)' },
       { opacity: 1, transform: 'translate(-50%,-14px) scale(1.15)', offset: 0.18 },
       { opacity: 1, transform: 'translate(-50%,-30px) scale(1)', offset: 0.62 },
-      { opacity: 0, transform: 'translate(-50%,-54px) scale(0.95)' }], { duration: 900, fill: 'forwards', easing: 'ease-out' });
+      { opacity: 0, transform: 'translate(-50%,-54px) scale(0.95)' }], { duration: POP_LIFE * 1000, fill: 'forwards', easing: 'ease-out' });
   }
 
   // ==== projection
@@ -392,6 +470,7 @@ export class Hud {
     const ctx = this.ctx, s = ctx.state, pl = ctx.player;
     this.clock += dt;
     this.tickAnn(dt);
+    this.tickToasts();
     if (this.hintT > 0) { this.hintT -= dt; if (this.hintT <= 0) this.hintEl.classList.remove('on'); }
     const cam = ctx.camera;
     if (cam) cam.updateMatrixWorld?.();
@@ -495,7 +574,8 @@ export class Hud {
     if (lag !== this.bossLag._v) { this.bossLag._v = lag; this.bossLag.style.transform = `scaleX(${lag.toFixed(4)})`; }
   }
 
-  // ESCORT INTEGRITY: one row per escort that is currently in trouble; the bar is the time left to clear the contact.
+  // TRANSPONDER LINK: one row per escort whose link is jammed. Signal bars show how much of the link is left before the
+  // contact cuts it (the same countdown as the escort timer, without a percentage).
   updateEscorts() {
     const wm = this.ctx.allies?.wingmen;
     let shown = 0;
@@ -507,19 +587,21 @@ export class Hud {
         if (!row) {
           const el = h('div', 'h-esc', null, this.escortList);
           const head = h('div', 'esc-head', null, el);
-          row = { el, name: h('span', 'esc-name', String(w.name).toUpperCase(), head), why: h('span', 'esc-why', '', head), pct: h('b', 'esc-pct', '', head), fill: null };
-          row.fill = h('i', null, null, h('div', 'esc-bar', null, el));
+          row = { el, name: h('span', 'esc-name', String(w.name).toUpperCase(), head), why: h('span', 'esc-why', '', head), bars: [] };
+          const sig = h('span', 'esc-sig', null, head);
+          for (let i = 0; i < LINK_BARS; i++) row.bars.push(h('i', null, null, sig));
           this.escortRows.set(w.name, row);
         }
         const frac = Math.max(0, Math.min(1, 1 - c.t / (c.limit || 1)));
+        const lit = Math.ceil(frac * LINK_BARS - 1e-6);
         setClass(row.el, 'on', true);
         setClass(row.el, 'low', frac < 0.35);
         setText(row.why, TROUBLE_TEXT[c.kind] || '');
-        setText(row.pct, Math.ceil(frac * 100) + '%');
-        row.fill.style.transform = `scaleX(${frac.toFixed(3)})`;
+        if (row.lit !== lit) { row.lit = lit; row.bars.forEach((b, i) => setClass(b, 'on', i < lit)); }
         shown++;
       }
     }
+    this.escortShown = shown;
     setClass(this.escortEl, 'on', shown > 0);
   }
 

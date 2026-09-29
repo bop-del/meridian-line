@@ -22,6 +22,7 @@ export class Comm {
     this.staticLeft = 0;
     this.nextBlip = 2;
     this._frame = -1;
+    this.held = false;
 
     // portrait box
     const box = (this.el = h('div', 'comm', null, parent));
@@ -48,11 +49,24 @@ export class Comm {
     this.stripBar = h('i', 'strip-bar', null, strip);
   }
 
+  // show one presentation and hide the other at once (no cross fade), so the box and the strip are never both visible
+  present(kind) {
+    const on = kind === 'box' ? this.el : kind === 'strip' ? this.strip : null;
+    for (const el of [this.el, this.strip]) {
+      if (el === on) continue;
+      if (el.classList.contains('on')) { el.classList.add('snap'); el.classList.remove('on'); void el.offsetWidth; el.classList.remove('snap'); }
+    }
+    if (on) on.classList.add('on');
+  }
+
+  get visible() { return !!this.cur && !this.held; }
+
   reset() {
     this.queue.length = 0;
     this.cur = null;
-    this.el.classList.remove('on');
-    this.strip.classList.remove('on');
+    this.held = false;
+    this.el.classList.remove('on', 'hold');
+    this.strip.classList.remove('on', 'hold');
   }
 
   push({ speaker = 'LUMEN', text = '', duration = 3.5 } = {}) {
@@ -70,6 +84,8 @@ export class Comm {
     const portrait = !!PORTRAITS[msg.sp];
     this.cur = { ...msg, idx: 0, typed: 0, hold: 0, done: false, total: 0, portrait };
     this.staticLeft = 0;
+    this.held = false;
+    this.el.classList.remove('hold'); this.strip.classList.remove('hold');
     if (portrait) {
       const p = PORTRAITS[msg.sp];
       // draw first, then reveal: the canvas never shows the previous speaker under the new name
@@ -80,9 +96,8 @@ export class Comm {
       this.el.style.setProperty('--comm-accent', p.accent);
       this.textEl.textContent = '';
       this.barFill.style.transform = 'scaleX(1)';
-      this.staticLeft = 0.45;
-      this.strip.classList.remove('on');
-      this.el.classList.add('on');
+      this.staticLeft = 0.16;
+      this.present('box');
     } else {
       const r = READOUTS[msg.sp];
       this.tagEl.textContent = r.tag;
@@ -90,8 +105,7 @@ export class Comm {
       this.strip.style.setProperty('--comm-accent', r.accent);
       this.stripText.textContent = '';
       this.stripBar.style.transform = 'scaleX(1)';
-      this.el.classList.remove('on');
-      this.strip.classList.add('on');
+      this.present('strip');
     }
     this.ctx.audio?.sfx?.('comm', { volume: portrait ? 0.7 : 0.45, pitch: portrait ? 1 : 1.35 });
   }
@@ -100,18 +114,26 @@ export class Comm {
     this.cur = null;
     if (this.queue.length) { this.start(this.queue.shift()); return; }
     const wasPortrait = this.el.classList.contains('on');
-    this.el.classList.remove('on');
-    this.strip.classList.remove('on');
+    this.el.classList.remove('on', 'hold');
+    this.strip.classList.remove('on', 'hold');
     this.ctx.audio?.sfx?.('comm', { volume: wasPortrait ? 0.35 : 0.2, pitch: 0.8 });
   }
 
   update(dt) {
     this.clock += dt;
     this.mouthT += dt;
+    const blocked = this.ctx.ui?.hud?.commBlocked?.() ?? false;
     if (!this.cur) {
-      if (this.queue.length) this.start(this.queue.shift());
+      if (this.queue.length && !blocked) this.start(this.queue.shift());
       else return;
     }
+    // the HUD keeps at most two of banner, transponder panel, comm and toasts on screen: hold the message while it is full
+    const hold = blocked;
+    if (hold !== this.held) {
+      this.held = hold;
+      (this.cur.portrait ? this.el : this.strip).classList.toggle('hold', hold);
+    }
+    if (hold) return;
     const c = this.cur;
     const textEl = c.portrait ? this.textEl : this.stripText;
     const barEl = c.portrait ? this.barFill : this.stripBar;
@@ -136,13 +158,13 @@ export class Comm {
     if (!c.portrait) return;
     // radio static: burst at message start and random blips
     this.nextBlip -= dt;
-    if (this.nextBlip <= 0) { this.staticLeft = Math.max(this.staticLeft, 0.06 + Math.random() * 0.1); this.nextBlip = 1.5 + Math.random() * 2.5; }
+    if (this.nextBlip <= 0) { this.staticLeft = Math.max(this.staticLeft, 0.05 + Math.random() * 0.06); this.nextBlip = 2 + Math.random() * 3; }
     const talking = !c.done;
     const mouth = talking ? (Math.sin(this.mouthT * 22) > -0.2 ? 0.3 + 0.7 * Math.abs(Math.sin(this.mouthT * 13)) : 0) : 0;
     const frame = (this.mouthT * 14) | 0;
     if (frame !== this._frame) {
       this._frame = frame;
-      drawPortrait(this.canvas, c.sp, mouth, this.mouthT, Math.min(1, this.staticLeft * 3));
+      drawPortrait(this.canvas, c.sp, mouth, this.mouthT, Math.min(1, this.staticLeft * 4));
     }
     if (this.staticLeft > 0) {
       this.staticLeft -= dt;
@@ -157,7 +179,7 @@ export class Comm {
     const d = this.img.data;
     for (let i = 0; i < d.length; i += 4) {
       const v = Math.random() * 255;
-      d[i] = v; d[i + 1] = v; d[i + 2] = v; d[i + 3] = 25 + amount * 140;
+      d[i] = v; d[i + 1] = v; d[i + 2] = v; d[i + 3] = 25 + amount * 110;
     }
     this.sg.putImageData(this.img, 0, 0);
   }

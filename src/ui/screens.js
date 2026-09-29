@@ -4,6 +4,11 @@ import { h, setText, fmt } from './dom.js';
 const DIFFS = ['easy', 'normal', 'hard'];
 const fmtTime = (t) => { t = Math.max(0, Math.round(t || 0)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
 const VOL_KEY = 'meridian-line-volumes-v1';
+const MUTE_KEY = 'meridian-line-muted-v1';
+const isTouch = () => { try { return matchMedia('(pointer: coarse)').matches; } catch (e) { return false; } };
+const SPEAKER_SVG = (muted) => '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + '<path d="M3.5 9.5h3.6L12 5.6v12.8l-4.9-3.9H3.5z" fill="currentColor" fill-opacity="0.25"/>'
+  + (muted ? '<path d="M16 9.5l5 5M21 9.5l-5 5"/>' : '<path d="M15.5 9.2a4 4 0 0 1 0 5.6"/><path d="M18.3 6.6a7.7 7.7 0 0 1 0 10.8"/>') + '</svg>';
 
 const CREDITS = [
   ['MERIDIAN LINE', 'h'],
@@ -56,6 +61,9 @@ export class Screens {
     this.stars = null;
     this.busyUntil = 0;
     this.volumes = this.loadVolumes();
+    this.muted = this.loadMuted();
+    this.speakers = [];
+    this.gate = false; // one-time sound gate on the title screen (see buildTitle)
     this.baseline = { score: 0, hits: 0, kills: 0, lives: 0 };
     this.levelName = '';
     this.results = {};
@@ -68,6 +76,8 @@ export class Screens {
     this.buildVictory();
     ctx.events.on('game:start', () => { this.results = {}; });
     ctx.events.on('ui:quitToTitle', () => { this.results = {}; });
+    ctx.events.on('audio:style', () => { this.refreshMusicStyle(); });
+    ctx.events.on('audio:unlocked', () => { if (this.gate) this.openGate(false); });
     window.addEventListener('keydown', (e) => this.onKey(e), true);
     this.applyVolumes(false);
   }
@@ -110,6 +120,18 @@ export class Screens {
     return item;
   }
 
+  // a menu row with a value: kind 'cycle' (left and right step through choices) or 'toggle' (Enter flips it)
+  option(def, parent, label, kind, step) {
+    const row = h('div', 'btn option', null, parent);
+    h('span', 'sl-l', label, row);
+    const val = h('span', 'op-v', '', row);
+    const item = { el: row, kind, step, val, set: (t) => { val.textContent = t; } };
+    row.addEventListener('click', () => { def.index = def.items.indexOf(item); this.refreshSel(def); this.activate(item); });
+    row.addEventListener('mouseenter', () => this.setIndex(def, def.items.indexOf(item)));
+    def.items.push(item);
+    return item;
+  }
+
   setIndex(def, i) {
     if (i < 0 || def.index === i) return;
     def.index = i;
@@ -124,6 +146,7 @@ export class Screens {
   activate(item) {
     if (performance.now() < this.busyUntil) return;
     if (item.kind === 'button') { this.sfx('uiSelect'); item.act?.(); }
+    else if (item.kind === 'cycle' || item.kind === 'toggle') item.step(1);
   }
 
   guard(ms = 500) { this.busyUntil = performance.now() + ms; }
@@ -147,8 +170,96 @@ export class Screens {
   }
 
   applyVolumes(save) {
-    this.ctx.audio?.setVolumes?.({ ...this.volumes });
+    const a = this.ctx.audio;
+    // mute uses the engine's own switch when it has one, otherwise it zeroes the master volume
+    if (typeof a?.setMuted === 'function') { a.setVolumes?.({ ...this.volumes }); a.setMuted(this.muted); }
+    else a?.setVolumes?.({ ...this.volumes, master: this.muted ? 0 : this.volumes.master });
     if (save) { try { localStorage.setItem(VOL_KEY, JSON.stringify(this.volumes)); } catch (e) { /* ignore */ } }
+  }
+
+  loadMuted() {
+    try { return localStorage.getItem(MUTE_KEY) === '1'; } catch (e) { return false; }
+  }
+
+  setMuted(m, feedback = true) {
+    m = !!m;
+    if (m === this.muted) return;
+    this.muted = m;
+    try { localStorage.setItem(MUTE_KEY, m ? '1' : '0'); } catch (e) { /* ignore */ }
+    this.applyVolumes(false);
+    this.refreshMute();
+    if (feedback && !m) this.sfx('uiMove', { volume: 0.6 });
+  }
+
+  // small speaker icon with a mute toggle, used on the title and pause screens
+  speakerButton(parent, cls = '') {
+    const b = h('button', 'speaker ' + cls, null, parent);
+    b.type = 'button'; b.tabIndex = -1;
+    b.setAttribute('aria-label', 'Sound on or off');
+    b.addEventListener('click', (e) => { e.stopPropagation(); this.ctx.audio?.unlock?.(); this.setMuted(!this.muted); });
+    this.speakers.push(b);
+    return b;
+  }
+
+  refreshMute() {
+    for (const b of this.speakers) {
+      b.innerHTML = SPEAKER_SVG(this.muted);
+      b.classList.toggle('muted', this.muted);
+      b.title = this.muted ? 'Sound off (click to turn on)' : 'Sound on (click to mute)';
+    }
+    const it = this.defs.pause?.items.find((i) => i.kind === 'toggle');
+    if (it) it.set(this.muted ? 'OFF' : 'ON');
+  }
+
+  // ==== music style: sets the music for the title, the levels, the bosses and the stingers
+  musicStyles() {
+    const a = this.ctx.audio;
+    const list = a?.musicStyles?.() ?? a?.titleVariants?.();
+    return Array.isArray(list) ? list : [];
+  }
+
+  currentStyle() {
+    const a = this.ctx.audio;
+    return a?.getMusicStyle ? a.getMusicStyle() : a?.getTitleVariant?.();
+  }
+
+  cycleMusicStyle(d = 1) {
+    const a = this.ctx.audio;
+    const list = this.musicStyles();
+    if (!a || !list.length) return;
+    const cur = list.findIndex((v) => v.id === this.currentStyle());
+    const next = list[(cur + d + list.length) % list.length];
+    this.sfx('uiMove', { volume: 0.6 });
+    if (a.setMusicStyle) a.setMusicStyle(next.id); else a.setTitleVariant?.(next.id);
+    this.refreshMusicStyle();
+  }
+
+  musicStyleName() {
+    const v = this.musicStyles().find((x) => x.id === this.currentStyle());
+    return String(v ? v.name : 'ORIGINAL').toUpperCase();
+  }
+
+  refreshMusicStyle() {
+    const n = this.musicStyleName();
+    if (this.musicName) this.musicName.textContent = n;
+    const it = this.defs.pause?.items.find((i) => i.kind === 'cycle');
+    if (it) it.set(n);
+  }
+
+  // ==== sound gate
+  openGate(on) {
+    this.gate = !!on;
+    this.defs.title?.el.classList.toggle('gated', this.gate);
+  }
+
+  // the first key, click or tap: unlock audio and start the title theme. The gesture is consumed.
+  passGate() {
+    if (!this.gate) return;
+    const a = this.ctx.audio;
+    a?.unlock?.();
+    a?.music?.('title');
+    this.openGate(false);
+    this.guard(350);
   }
 
   // ==== title
@@ -171,7 +282,7 @@ export class Screens {
 
     const press = h('button', 'press', null, inner);
     press.type = 'button'; press.tabIndex = -1;
-    h('span', null, 'PRESS ENTER', press);
+    h('span', null, isTouch() ? 'TAP TO START' : 'PRESS ENTER', press);
     press.addEventListener('click', () => this.startGame());
 
     const opts = h('div', 'title-opts', null, inner);
@@ -190,44 +301,39 @@ export class Screens {
     next.addEventListener('click', () => this.cycleDifficulty(1));
     this.diffHint = h('div', 'diff-hint', '', diff);
 
-    // title music selector (M key or click): B is the default, A and C are alternatives
+    // music style selector (M key or click): one style sets the title, level, boss and sting music
     const mus = h('div', 'diff music-sel', null, opts);
-    h('div', 'diff-l', 'TITLE MUSIC', mus);
+    h('div', 'diff-l', 'MUSIC STYLE', mus);
     const mrow = h('div', 'diff-row', null, mus);
     const mprev = h('button', 'arrow', '<', mrow); mprev.type = 'button'; mprev.tabIndex = -1;
     this.musicName = h('div', 'pill sel music-name', '', mrow);
     const mnext = h('button', 'arrow', '>', mrow); mnext.type = 'button'; mnext.tabIndex = -1;
-    mprev.addEventListener('click', () => this.cycleTitleMusic(-1));
-    mnext.addEventListener('click', () => this.cycleTitleMusic(1));
+    mprev.addEventListener('click', () => this.cycleMusicStyle(-1));
+    mnext.addEventListener('click', () => this.cycleMusicStyle(1));
 
     const leg = h('div', 'legend', null, d.el);
     const keys = [
       ['WASD / ARROWS', 'STEER'], ['SPACE / Z', 'FIRE, HOLD TO LOCK'], ['X', 'BOMB'], ['SHIFT', 'BOOST'],
-      ['CTRL / C', 'BRAKE'], ['Q / E', 'BARREL ROLL'], ['ESC / P', 'PAUSE'], ['M', 'TITLE MUSIC'],
+      ['CTRL / C', 'BRAKE'], ['Q / E', 'BARREL ROLL'], ['ESC / P', 'PAUSE'], ['M', 'MUSIC STYLE'],
     ];
     for (const [k, v] of keys) {
       const r = h('div', 'lg', null, leg);
       h('kbd', null, k, r); h('span', null, v, r);
     }
+    this.speakerButton(d.el, 'title-speaker');
+    this.buildGate(d.el);
     this.refreshDifficulty();
-    this.refreshTitleMusic();
   }
 
-  cycleTitleMusic(d = 1) {
-    const a = this.ctx.audio; if (!a?.titleVariants) return;
-    const list = a.titleVariants();
-    const cur = list.findIndex((v) => v.id === a.getTitleVariant());
-    const next = list[(cur + d + list.length) % list.length];
-    this.sfx('uiMove', { volume: 0.6 });
-    a.setTitleVariant(next.id);
-    this.refreshTitleMusic();
-  }
-
-  refreshTitleMusic() {
-    const a = this.ctx.audio; if (!a?.titleVariants || !this.musicName) return;
-    const cur = a.getTitleVariant();
-    const v = a.titleVariants().find((x) => x.id === cur);
-    this.musicName.textContent = (v ? v.name : 'ORIGINAL').toUpperCase();
+  // one-time sound gate: covers the title until the first key, click or tap, so the title theme can start
+  buildGate(parent) {
+    const g = (this.gateEl = h('div', 'sound-gate', null, parent));
+    const box = h('div', 'gate-box', null, g);
+    const ic = h('div', 'gate-icon', null, box);
+    ic.innerHTML = SPEAKER_SVG(false);
+    h('div', 'gate-main', isTouch() ? 'TAP FOR SOUND' : 'PRESS ANY KEY FOR SOUND', box);
+    h('div', 'gate-sub', isTouch() ? 'HEADPHONES RECOMMENDED' : 'OR CLICK  |  HEADPHONES RECOMMENDED', box);
+    g.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.passGate(); });
   }
 
   setDifficulty(k) {
@@ -272,6 +378,11 @@ export class Screens {
     this.slider(d, menu, 'MASTER', 'master');
     this.slider(d, menu, 'MUSIC', 'music');
     this.slider(d, menu, 'SFX', 'sfx');
+    this.option(d, menu, 'MUSIC STYLE', 'cycle', (dir) => this.cycleMusicStyle(dir));
+    this.option(d, menu, 'SOUND', 'toggle', () => this.setMuted(!this.muted));
+    this.speakerButton(p, 'pause-speaker');
+    this.refreshMute();
+    this.refreshMusicStyle();
     h('div', 'hint', 'ARROWS SELECT  |  ENTER CONFIRM  |  ESC RESUME', p);
   }
 
@@ -448,7 +559,13 @@ export class Screens {
     this.fillStats(name);
     this.guard(350);
     this.root.dataset.screen = name;
-    if (name === 'title') this.initStars();
+    if (name === 'title') {
+      this.initStars();
+      const a = this.ctx.audio;
+      // the gate only appears while the browser still blocks audio (first load)
+      const locked = a ? !(a.unlocked ?? a.gesture ?? false) : false;
+      this.openGate(locked);
+    }
   }
 
   hide() {
@@ -471,9 +588,15 @@ export class Screens {
     const d = this.defs[name];
     const k = e.key;
     let used = true;
+    // sound gate: the first key press unlocks audio and is consumed, so Enter cannot start the game unheard
+    if (name === 'title' && this.gate) {
+      if (!e.repeat && !['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab'].includes(k)) this.passGate();
+      e.preventDefault();
+      return;
+    }
     if (name === 'title') {
       if (k === 'Enter' || k === ' ') { if (!e.repeat) this.startGame(); }
-      else if (k === 'm' || k === 'M') this.cycleTitleMusic(1);
+      else if (k === 'm' || k === 'M') this.cycleMusicStyle(1);
       else if (k === 'ArrowLeft' || k === 'a' || k === 'A') this.cycleDifficulty(-1);
       else if (k === 'ArrowRight' || k === 'd' || k === 'D') this.cycleDifficulty(1);
       else if (k === 'ArrowUp' || k === 'ArrowDown' || k === 'w' || k === 's') this.cycleDifficulty(k === 'ArrowUp' || k === 'w' ? -1 : 1);
@@ -486,11 +609,11 @@ export class Screens {
     else if (k === 'ArrowUp' || k === 'w' || k === 'W') this.setIndex(d, (d.index - 1 + n) % n);
     else if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'a' || k === 'd') {
       const it = d.items[d.index];
+      const dir = k === 'ArrowLeft' || k === 'a' ? -1 : 1;
       if (it?.kind === 'slider') {
-        const dir = k === 'ArrowLeft' || k === 'a' ? -1 : 1;
         this.setVolume(it.key, this.volumes[it.key] + dir * 0.05);
         this.sfx('uiMove', { volume: 0.5, pitch: 1 + this.volumes[it.key] * 0.6 });
-      }
+      } else if (it?.kind === 'cycle' || it?.kind === 'toggle') it.step(dir);
     } else if ((k === 'Enter' || k === ' ') && !e.repeat) {
       const it = d.items[d.index];
       if (it && it.el.style.display !== 'none') this.activate(it);
@@ -517,7 +640,11 @@ export class Screens {
       }
       if (this.counters.every((c) => c.t >= c.dur)) this.counters.length = 0;
     }
-    if (this.current === 'title') this.drawStars(dt);
+    if (this.current === 'title') {
+      this.drawStars(dt);
+      const a = this.ctx.audio;
+      if (this.gate && (a?.unlocked ?? a?.gesture) === true) this.openGate(false); // unlocked some other way
+    }
   }
 
   initStars() {

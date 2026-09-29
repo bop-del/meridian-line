@@ -9,6 +9,7 @@ page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); }); p
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
 // real title flow: no autostart, press Enter
 await page.goto(`http://localhost:${port}/`, { waitUntil: 'load' }); await wait(1500);
+await page.keyboard.press('Enter'); await wait(800); // the first key press only unlocks audio (sound gate)
 await page.keyboard.press('Enter'); await wait(2500);
 console.log('after Enter', await page.evaluate(() => ({ phase: __ctx.state.phase, level: __ctx.state.levelIndex })));
 await page.evaluate(() => __ctx.game.advance(8)); await page.screenshot({ path: `${SP}/flow_play.png` });

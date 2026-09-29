@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <title>MERIDIAN LINE sound lab</title>
+  <style>
+    body { margin: 0; padding: 32px; background: #070b14; color: #dbe7ff; font: 15px/1.5 system-ui, sans-serif; }
+    h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .08em; }
+    h2 { font-size: 15px; margin: 26px 0 6px; letter-spacing: .1em; color: #9fb4d8; text-transform: uppercase; max-width: 900px; }
+    p.sub { margin: 0 0 20px; color: #7f93b8; max-width: 820px; }
+    .tools { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin: 14px 0; max-width: 900px; }
+    .tools label { display: flex; align-items: center; gap: 8px; }
+    select, button { font: inherit; padding: 7px 12px; border-radius: 6px; border: 1px solid #2b4570; background: #12203a; color: #dbe7ff; cursor: pointer; }
+    button:hover { background: #1a2d52; } button.pri { background: #0c6f8f; border-color: #35d0ff; }
+    button:disabled, input:disabled { opacity: .4; cursor: default; }
+    a { color: #35d0ff; }
+    .row { display: flex; align-items: center; gap: 10px; padding: 12px 16px; margin: 8px 0; max-width: 900px; background: #0d1526; border: 1px solid #1c2b48; border-radius: 8px; transition: border-color .15s, box-shadow .15s; }
+    .row.active { border-color: #35d0ff; box-shadow: 0 0 0 1px #35d0ff33; }
+    .row .txt { flex: 1; min-width: 0; } .row b { display: block; } .row small { color: #7f93b8; display: block; }
+    .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; margin-left: 6px; background: #12203a; border: 1px solid #2b4570; color: #9fb4d8; font-weight: normal; }
+    .badge.ok { border-color: #2f8f5a; color: #8fe3a8; } .badge.legacy { border-color: #8f6a2f; color: #e3c48f; }
+    .live { color: #35d0ff; font-variant-numeric: tabular-nums; }
+    #status { color: #8fe3a8; min-height: 1.4em; max-width: 900px; }
+    #meter { display: inline-block; width: 160px; height: 10px; background: #12203a; border: 1px solid #2b4570; border-radius: 5px; overflow: hidden; }
+    #meter i { display: block; height: 100%; width: 0; background: #35d0ff; }
+    #meter.hot i { background: #ff6a5a; }
+    button.sel { border-color: #2f8f5a; color: #8fe3a8; } button.on { background: #8f2f2f; border-color: #ff6a5a; }
+    input[type=range] { width: 150px; }
+  </style>
+</head>
+<body>
+  <h1>SOUND LAB</h1>
+  <p class="sub">Audition every sound effect. Sounds go through the same gain, compressor and limiter as the game. "Rapid x8" repeats a sound at a realistic fire rate and obeys the same voice limits as the game (gap and max voices). "Old" plays the previous recipe for a quick comparison. Pitch variation adds a random pitch offset per shot on top of what each recipe already randomises.</p>
+  <div class="tools">
+    <label>Volume <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" /> <span id="volval" class="live">0.80</span></label>
+    <label>Pitch <input id="pitch" type="range" min="0.5" max="2" step="0.01" value="1" /> <span id="pitchval" class="live">1.00</span></label>
+    <label>Pitch variation <input id="pvar" type="range" min="0" max="20" step="1" value="4" /> <span id="pvarval" class="live">4%</span></label>
+  </div>
+  <div class="tools">
+    <button id="stop">Stop all</button>
+    <label>Peak <span id="meter"><i></i></span> <span id="db" class="live">-inf dB</span></label>
+    <a href="./music-lab.html">Music lab</a>
+    <a href="./">Open the game</a>
+  </div>
+  <div id="l3"></div>
+  <div id="list"></div>
+  <p id="status"></p>
+  <script type="module" src="/src/audio/sfx2/lab.js"></script>
+</body>
+</html>

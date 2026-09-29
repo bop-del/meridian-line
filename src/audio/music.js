@@ -1,6 +1,7 @@
-// Procedural music: bar-based lookahead sequencer, crossfading song engine, intensity layering.
+// Procedural music: bar-based lookahead sequencer (legacy songs), style tracks (VariantPlayer), crossfading engine, intensity layering.
 import { compileSong, SONG_DEFS } from './songs.js';
-import { TITLE_VARIANTS, VariantPlayer, selectedTitleVariant } from './title/registry.js';
+import { VariantPlayer } from './title/player.js';
+import { STYLES, DEFAULT_STYLE, selectedStyle } from './styles/registry.js';
 import { leadNote, padChord, bassNote, arpNote, stab, kick, snare, hat, crash, tom } from './instruments.js';
 
 const TICK_MS = 40;
@@ -148,49 +149,83 @@ export class Sequencer {
   }
 }
 
-/** Owns the active sequencer and the ones fading out. */
+/**
+ * Owns the active player and the ones fading out. Every play(name) resolves through the selected style
+ * (STYLES[style].tracks[name], played by VariantPlayer). A track the style has not delivered falls back to the legacy
+ * Sequencer song in songs.js; the title always resolves to a style track (the default style's title as last resort).
+ */
 export class MusicEngine {
-  constructor(ac, dest) {
+  constructor(ac, dest, { styles = STYLES, styleId, legacy = SONG_DEFS, timer = true } = {}) {
     this.ac = ac;
     this.dest = dest;
+    this.styles = styles;
+    this.legacy = legacy;
+    this.styleId = styleId && styles[styleId] ? styleId : selectedStyle(styles, DEFAULT_STYLE in styles ? DEFAULT_STYLE : Object.keys(styles)[0]);
     this.cur = null;
     this.curName = null;
+    this.curStyle = null;   // style id the current player was resolved from (null = legacy song)
     this.old = [];
     this.intensity = 0.4;
     this.target = 0.4;
     this.compiled = new Map();
-    this.timer = setInterval(() => this.tick(), TICK_MS);
+    this.timer = timer ? setInterval(() => this.tick(), TICK_MS) : null;
   }
 
   song(name) {
     let s = this.compiled.get(name);
-    if (!s) { s = compileSong(name); this.compiled.set(name, s); }
+    if (!s) { s = compileSong(name, this.legacy[name]); this.compiled.set(name, s); }
     return s;
   }
 
-  has(name) { return !!SONG_DEFS[name] || name === 'title'; }
+  /** Where a track comes from: {kind:'style', styleId, module} or {kind:'legacy'} or null when it does not exist. */
+  resolve(name, styleId = this.styleId) {
+    const m = this.styles[styleId]?.tracks?.[name];
+    if (m) return { kind: 'style', styleId, module: m };
+    if (name === 'title') {
+      // the legacy title song is gone: fall back to the default style, then to any style that has a title
+      const alt = [DEFAULT_STYLE, ...Object.keys(this.styles)].find((id) => this.styles[id]?.tracks?.title);
+      if (alt) return { kind: 'style', styleId: alt, module: this.styles[alt].tracks.title };
+      return null;
+    }
+    if (this.legacy[name]) return { kind: 'legacy' };
+    return null;
+  }
 
+  has(name) { return !!this.resolve(name); }
 
-  play(name, { fade = 1.4, variant } = {}) {
-    // title music variants (src/audio/title): opts.variant overrides, 'orig' forces the original sequencer song
-    const vid = name === 'title' ? (variant ?? selectedTitleVariant()) : null;
-    const custom = vid ? TITLE_VARIANTS[vid] : null;
-    if (!custom && !SONG_DEFS[name]) return false;
-    if (custom && this.curName === name && this.cur && !this.cur.done && this.cur.meta?.id === vid) return true;
-    if (!custom && this.curName === name && this.cur && !this.cur.done && !this.cur.meta) return true;
-    if (this.curName === name && this.cur && this.cur.song.loop === false) { /* finished fanfare: allow restart */ }
+  /** Current effective intensity for a track: the boss track is always full. */
+  intensityFor(name) { return name === 'boss' ? 1 : this.intensity; }
+
+  play(name, { fade = 1.4, style, variant } = {}) {
+    const sid = (style ?? variant) && this.styles[style ?? variant] ? (style ?? variant) : this.styleId;
+    const res = this.resolve(name, sid);
+    if (!res) return false;
+    const key = res.kind === 'style' ? res.styleId : null;
+    const cur = this.cur;
+    if (cur && !cur.done && this.curName === name && this.curStyle === key) return true;
     const ac = this.ac;
     const now = ac.currentTime;
-    if (this.cur) { this.cur.fadeOut(now, fade); this.old.push(this.cur); }
-    const song = custom ? null : this.song(name);
-    const seq = custom
-      ? new VariantPlayer(ac, this.dest, custom, { startTime: now + 0.08 })
-      : new Sequencer(ac, this.dest, song, { startTime: now + 0.08, getIntensity: () => this.intensity });
+    if (cur) { cur.fadeOut(now, fade); this.old.push(cur); }
+    let seq;
+    if (res.kind === 'style') {
+      seq = new VariantPlayer(ac, this.dest, res.module, { startTime: now + 0.08, name, getIntensity: () => this.intensityFor(name) });
+    } else {
+      seq = new Sequencer(ac, this.dest, this.song(name), { startTime: now + 0.08, getIntensity: () => this.intensity });
+      if (seq.song.fixed !== undefined) this.intensity = seq.song.fixed;
+    }
     seq.fadeIn(now, this.old.length ? fade : Math.min(fade, 0.6));
     this.cur = seq;
     this.curName = name;
-    if (song?.fixed !== undefined) this.intensity = song.fixed;
+    this.curStyle = key;
     this.tick();
+    return true;
+  }
+
+  /** Switches the style. A track that is playing restarts in the new style with a crossfade. */
+  setStyle(id, { fade = 0.9 } = {}) {
+    if (!this.styles[id] || id === this.styleId) return false;
+    this.styleId = id;
+    if (this.cur && !this.cur.done && this.curName) this.play(this.curName, { fade });
     return true;
   }
 
@@ -198,10 +233,24 @@ export class MusicEngine {
     if (!this.cur) return;
     this.cur.fadeOut(this.ac.currentTime, fade);
     this.old.push(this.cur);
-    this.cur = null; this.curName = null;
+    this.cur = null; this.curName = null; this.curStyle = null;
   }
 
-  setIntensity(x) { this.target = Math.max(0, Math.min(1, x)); }
+  setIntensity(x, immediate = false) {
+    this.target = Math.max(0, Math.min(1, x));
+    if (immediate) this.intensity = this.target;
+  }
+
+  /** {style, track, playing, intensity, loop, source} for tests and the debug hook. */
+  status() {
+    const cur = this.cur;
+    const playing = !!cur && (!cur.done || this.ac.currentTime < cur.endTime);
+    return {
+      style: this.styleId, track: this.curName, playing, intensity: this.intensity,
+      loop: cur ? cur.song.loop !== false : null,
+      source: cur ? (cur.meta ? 'style:' + this.curStyle : 'legacy') : null,
+    };
+  }
 
   tick() {
     const ac = this.ac;
@@ -210,18 +259,18 @@ export class MusicEngine {
     this.intensity += (this.target - this.intensity) * (1 - Math.exp(-TICK_MS / 1000 / 2.5));
     if (this.cur && !this.cur.done) this.cur.scheduleUntil(now + look);
     for (const s of this.old) if (!s.done) s.scheduleUntil(now + look);
-    // a finished one-shot song keeps its tail; a faded song is disposed
+    // a finished one-shot keeps its tail; a faded song is disposed
     this.old = this.old.filter((s) => {
       if (now > s.endTime + 2.5) { s.dispose(); return false; }
       return true;
     });
-    if (this.cur && this.cur.done && !this.cur.song.loop && now > this.cur.endTime + 3) {
-      this.cur.dispose(); this.cur = null; this.curName = null;
+    if (this.cur && this.cur.done && !this.cur.song.loop && now > this.cur.endTime + 1) {
+      this.cur.dispose(); this.cur = null; this.curName = null; this.curStyle = null;
     }
   }
 
   dispose() {
-    clearInterval(this.timer);
+    if (this.timer) clearInterval(this.timer);
     for (const s of [this.cur, ...this.old]) s?.dispose();
     this.cur = null; this.old = [];
   }
