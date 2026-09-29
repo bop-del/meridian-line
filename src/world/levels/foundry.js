@@ -3,7 +3,7 @@
 // spinning rotors, and a wide arena for the final fight.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { Rng, SlotPool, ChunkStreamer, texturedBox, cloudTexture, softDotTexture, billboardPool, gearGeometry } from '../util.js';
+import { Rng, SlotPool, ChunkStreamer, texturedBox, cloudTexture, softDotTexture, canvasTexture, billboardPool, gearGeometry } from '../util.js';
 import { metalMaterial, motionMetal } from '../materials.js';
 import { createMolten } from '../liquids.js';
 import { createDust } from '../dust.js';
@@ -38,6 +38,7 @@ function buildEnvironment(ctx, W) {
   });
 
   const floor = createMolten();
+  softenCrucibles(floor.mat);
   root.add(floor.mesh);
 
   const uTime = { value: 0 };
@@ -68,7 +69,8 @@ function buildEnvironment(ctx, W) {
   const beamsA = new SlotPool(beamCore, beamMatA, CH, 3, { colors: false });
   const beamsB = new SlotPool(beamHalo, beamMatB, CH, 3, { colors: false });
   const flare = billboardPool(res.own(softDotTexture('170,210,255')), CH, 4, { additive: true, opacity: 0.85, near: 60 });
-  const glow = billboardPool(res.own(softDotTexture('255,140,40')), CH, 5, { additive: true, opacity: 0.22, near: 100 });
+  // molten floor glow: a smooth gaussian-like falloff that reaches zero well inside the quad, so nothing can show a hard edge
+  const glow = billboardPool(res.own(glowTexture('255,120,36')), CH, 5, { additive: true, opacity: 0.1, near: 140 });
   const smoke = billboardPool(res.own(cloudTexture('60,72,96', '14,18,30')), CH, 5, { opacity: 0.55, near: 80 });
   const all = [...wallPools, ridge, ceil, beam, lintel, stacks, stripsB, stripsA, gearA, gearB, ramHousing, ramRod, beamsA, beamsB, flare, glow, smoke];
   for (const p of all) root.add(p.mesh);
@@ -150,7 +152,7 @@ function buildEnvironment(ctx, W) {
           beamsB.add(x, FLOOR, z, r * 1.7, 320, r * 1.7);
         }
       }
-      if (!L2.interior) for (let i = 0; i < 5; i++) glow.add(rng.range(-160, 160), FLOOR + 6, z0 - rng.r() * LEN, rng.range(120, 260), rng.range(50, 90), 1);
+      if (!L2.interior) for (let i = 0; i < 5; i++) { const gw = rng.range(120, 260), gh = rng.range(50, 90); glow.add(rng.range(-160, 160), FLOOR + gh * 0.6, z0 - rng.r() * LEN, gw, gh, 1); }
       for (let i = 0; i < 5; i++) smoke.add(rng.range(-500, 500), rng.range(60, 220), z0 - rng.r() * LEN, rng.range(250, 500), rng.range(90, 180), 1, 0, 0, 0, i % 2 ? 0xffffff : 0xa0b0d0);
       for (const p of all) p.end();
     },
@@ -184,6 +186,33 @@ function buildEnvironment(ctx, W) {
     reset(ctx) { dust.reset(ctx); nextSurge = 4; surge = 0; },
     dispose() { W.lights.group.remove(fill); fill.dispose?.(); floor.dispose(); dust.dispose(); for (const p of all) p.mesh.dispose(); sky.uFlash.value = 0; },
   };
+}
+
+/** The floor shader draws crucible pools as flat hot discs with a short edge ramp, which bloom turns into opaque white ellipses.
+ *  Swap the pool masks for a long smooth falloff and a lower peak. A no-op if the shader text ever changes. */
+function softenCrucibles(mat) {
+  const a = 'float pool = step(0.78, ph) * (1.0 - smoothstep(pr * 0.7, pr, length(p - c)));';
+  const b = 'float poolRing = step(0.78, ph) * (1.0 - smoothstep(pr, pr + 5.0, length(p - c)));';
+  if (!mat.fragmentShader.includes(a) || !mat.fragmentShader.includes(b)) return;
+  mat.fragmentShader = mat.fragmentShader
+    .replace(a, 'float pdn = clamp(length(p - c) / (pr * 1.5), 0.0, 1.0); float pfall = 1.0 - pdn * pdn * (3.0 - 2.0 * pdn); float pool = step(0.78, ph) * pfall * pfall * 0.62;')
+    .replace(b, 'float poolRing = step(0.78, ph) * pfall * pfall * 0.5;');
+  mat.needsUpdate = true;
+}
+
+/** Radial glow whose alpha follows a smooth bell and is exactly zero at 85 percent of the radius (no visible rim). */
+function glowTexture(rgb) {
+  return canvasTexture(128, 128, (g, w, h) => {
+    const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+    const stops = 14;
+    for (let i = 0; i <= stops; i++) {
+      const k = i / stops, r = Math.min(1, k / 0.85);
+      const a = r >= 1 ? 0 : Math.pow(1 - r * r * (3 - 2 * r), 1.6) * 0.9;
+      gr.addColorStop(k, `rgba(${rgb},${a.toFixed(4)})`);
+    }
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  });
 }
 
 /** Open cylinder column, unit radius and height, base at y=0, colour fading to black at the top. */

@@ -49,12 +49,17 @@ export class Comm {
     this.stripBar = h('i', 'strip-bar', null, strip);
   }
 
-  // show one presentation and hide the other at once (no cross fade), so the box and the strip are never both visible
+  // show one presentation and hide the other at once (no cross fade), so the box and the strip are never both visible.
+  // Anything that is not the incoming presentation, or that is still fading out from its last message, is snapped to
+  // opacity 0 and its old text cleared first, so a fade-out can never show ghost lines under the next message.
   present(kind) {
     const on = kind === 'box' ? this.el : kind === 'strip' ? this.strip : null;
     for (const el of [this.el, this.strip]) {
-      if (el === on) continue;
-      if (el.classList.contains('on')) { el.classList.add('snap'); el.classList.remove('on'); void el.offsetWidth; el.classList.remove('snap'); }
+      const live = el === on && el.classList.contains('on');
+      if (live) continue;
+      el.classList.add('snap'); el.classList.remove('on', 'hold');
+      if (el !== on) { (el === this.el ? this.textEl : this.stripText).textContent = ''; }
+      void el.offsetWidth; el.classList.remove('snap');
     }
     if (on) on.classList.add('on');
   }

@@ -40,7 +40,7 @@
 /* ==== HUD */
 .hud { position: absolute; inset: 0; opacity: 0; transition: opacity 0.4s; pointer-events: none; }
 .hud.on { opacity: 1; }
-.hud .lbl { font-size: max(9px, 0.56em); font-weight: 600; letter-spacing: 0.34em; color: var(--teal); text-shadow: 0 0 0.6em rgba(70,230,210,0.45); }
+.hud .lbl { font-size: max(9px, 0.56em); font-weight: 600; letter-spacing: 0.34em; color: var(--teal); text-shadow: 0 0 2px rgba(2,10,22,0.9), 0 0.05em 0.12em rgba(2,10,22,0.8); }
 .hud .g-num { font-size: max(9px, 0.66em); color: var(--white); letter-spacing: 0.12em; font-variant-numeric: tabular-nums; min-height: 1.2em; }
 .hud .g-lbl { font-size: max(8px, 0.5em); font-weight: 600; letter-spacing: 0.28em; color: var(--teal); text-shadow: 0 0 0.6em rgba(70,230,210,0.45); margin-right: -0.28em; }
 
@@ -64,7 +64,7 @@
 .h-lives b { font-weight: 500; }
 
 /* top centre: score, KILLS, boss bar */
-.h-tc { position: absolute; top: 0.9em; left: 50%; transform: translateX(-50%); text-align: center; text-shadow: 0 0.06em 0 #000, 0 0 0.6em rgba(70,230,210,0.35); }
+.h-tc { position: absolute; top: 0.9em; left: 50%; transform: translateX(-50%); text-align: center; text-shadow: 0 0 2px rgba(2,10,22,0.9), 0 0.05em 0.12em rgba(2,10,22,0.8), 0 0 0.5em rgba(2,10,22,0.45); }
 .h-score { font-size: 2.5em; font-weight: 300; line-height: 1.05; font-variant-numeric: tabular-nums; letter-spacing: 0.12em; transform-origin: 50% 50%; }
 .h-tc-row { position: relative; display: flex; justify-content: center; align-items: baseline; min-height: 1.6em; margin-top: 0.1em; }
 .h-hit { display: flex; gap: 0.6em; align-items: baseline; }
@@ -79,8 +79,8 @@
 .h-boss-bar .fill { background: linear-gradient(90deg, #ff3a3a, #ff9a3a); box-shadow: 0 0 0.9em rgba(255,70,40,0.9); }
 
 /* top right: level name and escort integrity */
-.h-tr { position: absolute; top: 1.2em; right: 2em; width: 17em; text-align: right; text-shadow: 0 0.06em 0 #000; }
-.h-level { font-size: 0.85em; letter-spacing: 0.34em; margin-right: -0.34em; color: var(--teal); }
+.h-tr { position: absolute; top: 1.2em; right: 2em; width: 17em; text-align: right; text-shadow: 0 0 2px rgba(2,10,22,0.9), 0 0.05em 0.12em rgba(2,10,22,0.8), 0 0 0.5em rgba(2,10,22,0.45); }
+.h-level { font-size: 0.85em; font-weight: 600; letter-spacing: 0.34em; margin-right: -0.34em; color: var(--teal); }
 .h-escort { margin-top: 0.9em; padding: 0.55em 0.8em 0.7em; text-align: left; opacity: 0; transition: opacity 0.3s; background: rgba(3,10,18,0.74); border-right: 2px solid var(--amber); }
 .h-escort.on { opacity: 1; }
 .h-esc { display: none; margin-top: 0.55em; }
@@ -122,9 +122,8 @@
 .h-laser i { width: 1.2em; height: 0.34em; background: rgba(255,255,255,0.14); }
 .h-laser i.on { background: var(--teal); box-shadow: 0 0 0.6em var(--teal); }
 
-/* soft dark backing so the HUD stays readable over bright skies and seas */
-.h-tc::before, .h-tr::before, .h-tl::before, .h-l::before { content: ''; position: absolute; z-index: -1; inset: -0.8em -1.6em; background: radial-gradient(ellipse at center, rgba(2,10,24,0.4), rgba(2,10,24,0) 70%); pointer-events: none; }
-.h-tc, .h-tr, .h-tl, .h-l { filter: drop-shadow(0 0 3px rgba(0,10,25,0.85)); }
+/* readability over bright seas and skies without a backing smudge: a tight dark outline built from shadows, no plate */
+.h-tc, .h-tr, .h-tl, .h-l { filter: drop-shadow(0 0 1px rgba(2,10,22,0.95)) drop-shadow(0 1px 2px rgba(2,10,22,0.7)); }
 
 /* reticle: one thin ring with four ticks */
 .h-ret, .h-hitmarker { position: absolute; left: 0; top: 0; width: 0; height: 0; opacity: 0; will-change: transform; pointer-events: none; }
@@ -164,7 +163,7 @@
 .h-pop.big { font-size: 1.7em; color: var(--gold); text-shadow: 0 0 0.6em rgba(255,215,119,0.8), 0 0 2px #000, 0 0 3px #000, 0 1px 3px #000, 0 3px 7px rgba(0,0,0,0.85); }
 
 .h-toasts { position: absolute; left: 50%; bottom: 18%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.25em; pointer-events: none; }
-.toast { font-size: 1.3em; font-weight: 600; letter-spacing: 0.24em; animation: toastin 1.5s ease-out forwards; text-shadow: 0 0 0.6em currentColor, 0 0.06em 0 #000; }
+.toast { font-size: 1.3em; font-weight: 700; letter-spacing: 0.24em; animation: toastin 1.5s ease-out forwards; -webkit-text-stroke: 0.03em rgba(2,10,22,0.7); paint-order: stroke fill; text-shadow: 0 0 2px rgba(2,10,22,0.95), 0 0.04em 0.1em rgba(2,10,22,0.85), 0 0.08em 0.35em rgba(2,10,22,0.6), 0 0 0.7em rgba(2,10,22,0.45); }
 .toast.good { color: var(--green); } .toast.warn { color: var(--amber); } .toast.cyan { color: var(--teal); } .toast.gold { color: var(--gold); } .toast.bad { color: var(--red); } .toast.violet { color: #cfa4ff; }
 
 /* control hint: a small quiet prompt line above the bottom edge */
@@ -175,8 +174,8 @@
 
 .h-banner { position: absolute; left: 0; right: 0; top: 24%; text-align: center; opacity: 0; pointer-events: none; }
 .h-banner.on { animation: bannerlife 2.8s ease-out forwards; }
-.h-banner .main { font-size: 3em; font-weight: 300; letter-spacing: 0.32em; color: var(--white); text-shadow: 0 0 0.4em rgba(70,230,210,0.7), 0 0.05em 0 #000; }
-.h-banner .sub { font-size: 1.1em; letter-spacing: 0.5em; color: var(--teal); margin-top: 0.4em; text-shadow: 0 0.06em 0 #000; }
+.h-banner .main { font-size: 3em; font-weight: 400; letter-spacing: 0.32em; color: var(--white); -webkit-text-stroke: 0.02em rgba(2,10,22,0.55); paint-order: stroke fill; text-shadow: 0 0 2px rgba(2,10,22,0.95), 0 0.04em 0.1em rgba(2,10,22,0.85), 0 0.08em 0.35em rgba(2,10,22,0.6), 0 0 0.5em rgba(2,10,22,0.35); }
+.h-banner .sub { font-size: 1.1em; font-weight: 700; letter-spacing: 0.5em; color: #6ff5e4; margin-top: 0.4em; -webkit-text-stroke: 0.03em rgba(2,10,22,0.7); paint-order: stroke fill; text-shadow: 0 0 2px rgba(2,10,22,0.95), 0 0.04em 0.1em rgba(2,10,22,0.85), 0 0.08em 0.35em rgba(2,10,22,0.6), 0 0 0.6em rgba(2,10,22,0.4); }
 
 /* WARNING: solid light text on a dark plate with an amber edge, readable over any sky */
 .h-warning { position: absolute; left: 50%; top: 22%; width: min(72vw, 62em); transform: translateX(-50%); text-align: center; opacity: 0; pointer-events: none; padding: 0.45em 0 0.6em;
@@ -360,12 +359,13 @@
 .intro-bar.top { top: 0; transform-origin: 50% 0; } .intro-bar.bot { bottom: 0; transform-origin: 50% 100%; }
 .intro.on .intro-bar { animation: barin 3.6s cubic-bezier(0.2, 0.9, 0.3, 1) forwards; }
 .intro-card { position: absolute; left: 0; right: 0; top: 40%; transform: translateY(-50%); text-align: center; }
-.intro-stage { font-size: 1em; font-weight: 600; letter-spacing: 0.8em; margin-right: -0.8em; color: var(--amber); text-shadow: 0 0 0.6em rgba(255,176,46,0.6); }
-.intro-name { font-size: 4.6em; font-weight: 200; line-height: 1.15; color: var(--white); text-shadow: 0 0 0.35em rgba(70,230,210,0.65), 0 0.05em 0 #000; white-space: nowrap; }
+.intro-card::before { content: ''; position: absolute; left: 6%; right: 6%; top: -6%; bottom: -8%; z-index: -1; background: linear-gradient(90deg, rgba(2,10,22,0), rgba(2,10,22,0.3) 18%, rgba(2,10,22,0.3) 82%, rgba(2,10,22,0)); -webkit-mask-image: linear-gradient(rgba(0,0,0,0), #000 30%, #000 70%, rgba(0,0,0,0)); mask-image: linear-gradient(rgba(0,0,0,0), #000 30%, #000 70%, rgba(0,0,0,0)); pointer-events: none; }
+.intro-stage { font-size: 1em; font-weight: 600; letter-spacing: 0.8em; margin-right: -0.8em; color: var(--amber); -webkit-text-stroke: 0.03em rgba(2,10,22,0.6); paint-order: stroke fill; text-shadow: 0 0 2px rgba(2,10,22,0.95), 0 0.04em 0.1em rgba(2,10,22,0.85), 0 0.08em 0.35em rgba(2,10,22,0.6); }
+.intro-name { font-size: 4.6em; font-weight: 300; line-height: 1.15; color: var(--white); -webkit-text-stroke: 0.012em rgba(2,10,22,0.6); paint-order: stroke fill; text-shadow: 0 0 2px rgba(2,10,22,0.95), 0 0.04em 0.1em rgba(2,10,22,0.85), 0 0.08em 0.35em rgba(2,10,22,0.6), 0 0 0.3em rgba(2,10,22,0.4); white-space: nowrap; }
 .intro.on .intro-name { animation: namein 3.6s cubic-bezier(0.2, 0.9, 0.3, 1) forwards; }
 .intro-rule { position: relative; width: 44%; height: 1px; margin: 0.9em auto; background: linear-gradient(90deg, transparent, var(--teal) 25%, var(--teal) 75%, transparent); box-shadow: 0 0 1em var(--teal); }
 .intro-rule::after { content: ''; position: absolute; left: 50%; top: -0.28em; width: 0.55em; height: 0.55em; margin-left: -0.28em; background: var(--amber); transform: rotate(45deg); }
-.intro-sub { font-size: 1.15em; font-weight: 500; letter-spacing: 0.6em; margin-right: -0.6em; color: var(--teal); }
+.intro-sub { font-size: 1.15em; font-weight: 700; letter-spacing: 0.6em; margin-right: -0.6em; color: #6ff5e4; -webkit-text-stroke: 0.03em rgba(2,10,22,0.7); paint-order: stroke fill; text-shadow: 0 0 2px rgba(2,10,22,0.95), 0 0.04em 0.1em rgba(2,10,22,0.85), 0 0.08em 0.35em rgba(2,10,22,0.6), 0 0 0.6em rgba(2,10,22,0.4); }
 
 /* ==== keyframes */
 @keyframes lowpulse { 0%, 100% { opacity: 0.15; } 50% { opacity: 0.85; } }
