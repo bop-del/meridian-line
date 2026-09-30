@@ -178,11 +178,12 @@ export const world = {
     if (v.step === 0 && v.t > 0.8) {
       v.step = 1;
       // debrief lines: [speaker, text]. Dispatch and readouts only log the result.
-      const lines = [
-        [['CONTROL', 'Landing fleet neutralised. Thalassa Coast logged clear.'], ['FERRO', 'Better than the briefing suggested. Low bar.']],
-        [['LUMEN', 'Ring vessel destroyed. Debris field stable.'], ['VEX', 'Wing two confirms. Nothing left to inspect.']],
-        [['LUMEN', 'Regent core signal lost. Dominion fleet withdrawing.'], ['CONTROL', 'Forge offline. Logging.'], ['SABLE', 'Noted.']],
-      ][Math.min(2, this.index)];
+      const DEBRIEF = {
+        thalassa: [['CONTROL', 'Landing fleet neutralised. Thalassa Coast logged clear.'], ['FERRO', 'Better than the briefing suggested. Low bar.']],
+        cinder: [['LUMEN', 'Ring vessel destroyed. Debris field stable.'], ['VEX', 'Wing two confirms. Nothing left to inspect.']],
+        foundry: [['LUMEN', 'Regent core signal lost. Dominion fleet withdrawing.'], ['CONTROL', 'Forge offline. Logging.'], ['SABLE', 'Noted.']],
+      };
+      const lines = DEBRIEF[this.theme] ?? DEBRIEF.cinder;   // keyed by the level theme, so the play order can change
       lines.forEach(([speaker, text], i) => {
         const show = () => ctx.ui?.comm?.({ speaker, text, duration: 3.2 });
         if (i === 0) show(); else this.runner.after(i * 3.3, show);

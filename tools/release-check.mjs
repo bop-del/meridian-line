@@ -53,7 +53,7 @@ console.log(`release-check on ${sh('git rev-parse --short HEAD').trim()} (branch
   const textFiles = files.filter((f) => /\.(js|mjs|json|md|html|css|yml|yaml|svg|txt)$/.test(f) && f !== 'package-lock.json');
   const dashHits = [], internalHits = [];
   const INTERNAL = /\b(the owner|private notes|sub-?agent|round [0-9]+ agent|claude code)\b/i;   // process wording that should not be public
-  const CODE_INTERNAL = /\b(private notes|sub-?agent|round [0-9]+ agent|claude code)\b/i;   // in code comments 'the owner' is often an entity, so it is not checked there
+  const CODE_INTERNAL = /\b(private notes|sub-?agent|round [0-9]+ agent|claude code)\b|\bOwner: the\b|\b(round|laser round) [0-9]\b/i;   // in code comments 'the owner' is often an entity, so it is not checked there
   for (const f of textFiles) {
     const lines = readFileSync(join(ROOT, f), 'utf8').split('\n');
     lines.forEach((l, i) => {

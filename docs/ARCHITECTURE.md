@@ -53,7 +53,8 @@ Every module is a singleton object with optional `init(ctx, uiRoot)`, `reset(ctx
 | fx | `src/fx/fx.js` | Pooled particles, debris, shockwaves, trails, hit sparks and kill bursts. `fx.shake` forwards to `impact`. |
 | feel | `src/core/feel.js` | Registry of live tunable values (`feel.p.<group>.<key>`, groups in `src/feel/`), presets, and the overrides behind the `?tune=1` panel. |
 | ui | `src/ui/ui.js` | DOM overlay: HUD, comm box and text readouts, title, pause, level complete (letter rank), game over, victory screens. See below. |
-| audio | `src/audio/audio.js` | Sound effects, engine ambience and the music engine. |
+| cinema | `src/fx/cinema.js` | The takeover director: named camera shots of at most 4 s (boss entrance and defeat finisher) with letterbox bars, HUD fade, input lock and invulnerability. Level intros and signature moments live in `src/cinema/` and keep the player in control. |
+| audio | `src/audio/audio.js` | Sound effects, the music engine and the buses in `mix.js` (music, sfx, voice, engine, ducking), positioned sound in `spatial.js`, the engine voice in `engine.js` and the radio pilot voices in `voice.js`. |
 | render | `src/render/renderer.js` | WebGL renderer, bloom, a custom grade pass and FXAA, adaptive quality, screen flash. |
 
 Per frame while **playing**, `game.js` runs in this order:
@@ -146,13 +147,13 @@ Modules talk through `ctx.events`. Names are `domain:action`. The ones in use:
 - `synth.js` and `instruments.js` provide oscillator, noise and filter building blocks and the instrument voices.
 - `sfx.js` defines the sound effects and their metadata (rate limits and priorities). `audio.js` dedupes sounds triggered both by events and by direct calls, limits the voice count and applies distance and pan.
 - `songs.js` holds the level and jingle scores. `music.js` is a bar-based lookahead sequencer with crossfading and intensity layers.
-- `src/audio/styles/` holds the three music styles (B dark synthwave, the default, A cinematic drift, C restrained orchestral). Each style defines seven tracks: title, the three level themes, the boss theme, and the victory and game over stingers. Level themes take an intensity value that follows level progress; stingers play once. The choice is stored in `localStorage` under `meridian-music-style` (an older `meridian-title-variant` key is migrated) and can be overridden with `?style=a|b|c` (`?title=` is an alias). The title tracks live in `src/audio/title/` together with the track player.
+- `src/audio/styles/` holds the four music styles (B dark synthwave, the default, A cinematic drift, C restrained orchestral, D hypnotic melodic techno, default mix 'deep'). Each style defines seven tracks: title, the three level themes, the boss theme, and the victory and game over stingers. Level themes take an intensity value that follows level progress; stingers play once. The choice is stored in `localStorage` under `meridian-music-style` (an older `meridian-title-variant` key is migrated) and can be overridden with `?style=a|b|c|d` (`?title=` is an alias). The title tracks live in `src/audio/title/` together with the track player.
 - `src/audio/sfx2/` holds the weapon and impact sound recipes that override the base ones in `sfx.js`, plus the sound lab. `music-lab.html` and `sfx-lab.html` are pages for auditioning every track and every sound effect.
 - The first key press or tap on the title screen unlocks audio (the sound gate) and starts the title music; the pause and title screens have a mute toggle.
 
 ## Test hooks
 
-- URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?q=`, `?msaa=`, `?style=a|b|c` (music style, `?title=` is an alias).
+- URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?q=`, `?msaa=`, `?style=a|b|c|d` (music style, `?title=` is an alias), `?dvar=melodic|pressure|deep|hypno` (Techno mix), `?showcase=1` (autopilot route for recording, see [SHOWCASE.md](SHOWCASE.md)).
 - `window.__ctx` is the context above. `__ctx.game.advance(seconds)` steps the simulation without rendering.
 - `tools/` contains puppeteer-core scripts that drive system Chrome; see the README.
 

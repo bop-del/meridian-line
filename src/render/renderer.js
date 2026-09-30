@@ -51,7 +51,7 @@ export const render = {
   ctx: null, composer: null, bloom: null, post: null, mount: null, scenePass: null, sanitize: null, sun: null,
   quality: 0, tier: QUALITY[0], adaptive: true, avgMs: 16, _slow: 0, _fast: 0, _sinceChange: 0,
   _pendingQ: -1, _stepFrom: null, _dropLock: 0, _lockLen: 45,
-  // live look (blended toward the registry values of the current level), bloom/exposure/vignette/tint keep their round 1 names
+  // live look (blended toward the registry values of the current level), bloom/exposure/vignette/tint keep their original names
   look: { ...LEVEL_DEFAULTS.thalassa, tint: new THREE.Color(1, 1, 1), shadowCol: new THREE.Vector3(1, 1, 1), highCol: new THREE.Vector3(1, 1, 1) },
   _lvl: {}, _lvlTint: new THREE.Color(1, 1, 1), _snap: true,
   _extra: { chroma: null, grain: null, blur: null, damage: null, flash: null, bloomScale: null, shaftsScale: null, flareScale: null, fogScale: null },

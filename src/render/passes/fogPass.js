@@ -1,6 +1,6 @@
 // Sanitise plus far blur plus height fog, one full screen pass that reads the scene colour and depth from ScenePass.
 //
-// SanitizeFogShader: replaces NaN and Inf with black and clamps HDR to uMax (the round 1 sanitise semantics, it must stay the first
+// SanitizeFogShader: replaces NaN and Inf with black and clamps HDR to uMax (the original sanitise semantics, it must stay the first
 // pass after the scene so bloom never sees a bad value), then, when the fog tier flag is on, adds height fog that is densest at the
 // water or floor (analytic integral of density * exp(-height / falloff) along the view ray) plus a thin distance haze, with sun
 // coloured in scatter toward each sun. Fog starts uStart units from the camera, so the ship and near enemies are never fogged.

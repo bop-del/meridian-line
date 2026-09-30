@@ -1,4 +1,4 @@
-// Feel parameters for the "look" group (registered into src/core/feel.js). Owner: the lighting lead.
+// Feel parameters for the "look" group (registered into src/core/feel.js). Post-processing and grade.
 // Read every frame by src/render/renderer.js (feel.p.look.<key>), so the ?tune=1 panel takes effect at once (values blend over
 // about half a second, the same blend a level change uses).
 //

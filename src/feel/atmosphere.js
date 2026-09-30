@@ -1,4 +1,4 @@
-// Feel parameters for the "atmosphere" group (registered into src/core/feel.js). Owner: the level atmosphere agent.
+// Feel parameters for the "atmosphere" group (registered into src/core/feel.js). Level atmosphere.
 // Every value is READ from feel.p.atmosphere.<key> each frame (or when the level loads AND on feel.onChange) by the code that uses it,
 // so the ?tune=1 panel takes effect instantly. Sections fold in the panel.
 // Per level values carry the level prefix (thalassa_, cinder_, foundry_) and are read with the theme of ctx.world.theme.

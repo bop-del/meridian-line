@@ -1,4 +1,4 @@
-// Boss 3 (Obsidian Foundry): THE REGENT, a tall crystalline sovereign core of dark glass. A luminous core seed sits at
+// Boss of the Obsidian Foundry: THE REGENT, a tall crystalline sovereign core of dark glass. A luminous core seed sits at
 // its heart and four prism emitters orbit it. Nothing in it is a body: the whole fight is light and glass.
 //  P1 EMITTERS: each emitter drifts to the front of its orbit, cracks its lens shut-to-open after a telegraph and sweeps a
 //               prismatic beam across the lane. It can only be damaged while the lens is open. Burn out all four.
@@ -64,6 +64,7 @@ export class Regent extends Boss {
     this.body.position.z = BODY_Z;
     this.radius = 12; this.bounds = new THREE.Vector3(12, 22, 12);
     this.deathColors = [0x9fd0ff, 0xe6f4ff]; this.debrisColor = 0x22417e;
+    this.deathCfg = { flash: '#d4e8ff', sink: 2.2, sinkAfter: 1.5, tumble: 0.2 };
     const b = this.body;
     // the crystal: twelve tetrahedral pieces that assemble into a tall hexagonal bipyramid, plus an equator ring
     this.crystal = new THREE.Group(); b.add(this.crystal);
@@ -126,8 +127,9 @@ export class Regent extends Boss {
   }
 
   intro() {
-    this.after(0.6, () => this.comm('REGENT', 'Ninth Flight. Your approach has been logged. It will not be required again.', 3.6));
-    this.after(4.2, () => this.comm('LUMEN', 'Sovereign core, crystalline. Four orbital emitters. Lens open only while firing.', 3.6));
+    const D = this.cinDelay ?? 0;   // the comm lines wait for the entrance takeover to end
+    this.after(D + 0.3, () => this.comm('REGENT', 'Ninth Flight. Your approach has been logged. It will not be required again.', 3.6));
+    this.after(D + 4.2, () => this.comm('LUMEN', 'Sovereign core, crystalline. Four orbital emitters. Lens open only while firing.', 3.6));
     this.calm = 0; this.emLeft = NEM; this.frac = 0; this.over = 0; this.fly = []; this.pat = null; this.patCd = 3; this.patCount = 0;
     this.reflected = new Set(); this.win = { state: 'closed', t: 0, dur: 2.6 }; this.winHinted = false; this.reflectNoted = false; this.ringEm = 0; this.phaseSpin = 0;
     this.offReflect = this.ctx.events.on('shot:reflected', ({ shot }) => this.shardReflected(shot));
@@ -168,7 +170,77 @@ export class Regent extends Boss {
     this.fly.length = 0; this.wallItems?.forEach((it) => { it.m.visible = false; }); this.wallItems = null; this.pat = null; this.gapMark.visible = false;
     super.startDeath(ctx);
     this.after(0.8, () => this.comm('REGENT', 'This cycle is incomplete. The archive is... lost.', 3.6));
-    this.after(4.4, () => this.comm('SABLE', 'Cycle closed.', 2.2));
+    this.after(5.2, () => this.comm('SABLE', 'Cycle closed.', 2.2));
+  }
+
+  focus(out) { return this.seedG.getWorldPosition(out); }
+
+  // cold energy instead of fire: prism light rings, flares and sparks in the emitter tints
+  blastFx(ctx, pos, scale, color, deb) {
+    ctx.fx?.fireFlare?.(pos, color, scale * 0.9); ctx.fx?.shockwave?.(pos, { radius: 9 + scale * 3.5, color });
+  }
+
+  burstFx(ctx, c, gs, color) {
+    ctx.fx?.fireFlare?.(c, 0xe6f4ff, 16); ctx.fx?.shockwave?.(c, { radius: 60, color: 0xbfe0ff });
+    this.after(0.12, () => ctx.fx?.shockwave?.(c, { radius: 34, color: 0xffffff }));
+    ctx.fx?.explosion?.(c, { scale: 2.6 * gs, big: true, color: 0xbfe0ff, debrisColor: this.debrisColor });
+  }
+
+  // ---- defeat: the emitters overload one after another, the seed goes white, the crystal shatters outward ----
+  onDeathStart() { this.ds.q = this.ds.q.filter((p) => p.name !== 'prismEmitter'); this.shatter = null; }
+
+  deathPoint(out) {
+    const pc = this.pieces[(Math.random() * this.pieces.length) | 0];
+    pc.pg.getWorldPosition(out);
+    return out.add(_o.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8));
+  }
+
+  deathTick(dt, t, S, ctx) {
+    const D = this.dp;
+    if (!S.burst) {
+      this.animate(dt, ctx);
+      const k = Math.min(1, t / D.burstAt);
+      // emitters: charge 0.45 s, blow, go dark and drop out of the orbit
+      for (const em of this.ems) {
+        const t0 = 0.3 + 0.45 * em.i, ph = (t - t0) / 0.45;
+        if (em.gone) continue;
+        if (ph > 0) {
+          this.setGlow(em.glow, Math.min(1, ph), 28);
+          em.lensMat.emissiveIntensity = 1 + 4 * Math.min(1, ph); em.halo.scale.setScalar(4 + 6 * Math.min(1, ph));
+          em.edgeM.opacity = 1; em.bodyM.material.emissive.setHex(em.tint); em.bodyM.material.emissiveIntensity = 0.3 + 1.2 * Math.min(1, ph);
+        }
+        if (ph >= 1) {
+          em.gone = true; this.setGlow(em.glow, 0); em.eg.getWorldPosition(_o);
+          this.blastFx(ctx, _o, 6, em.tint); ctx.fx?.debris?.(_o, 10, 0x22417e);
+          ctx.fx?.shake?.(0.7, 0.35); ctx.audio?.sfx?.('bigExplosion', { position: _o, volume: 0.7 });
+          em.eg.visible = false;
+        }
+      }
+      // the seed heats up, its cage flies open, everything trembles
+      this.setGlow(this.seedGlow, k * k, 30);
+      this.cage.scale.setScalar(3.3 + 5 * k); this.seedHalo.scale.setScalar(6 + 14 * k * k);
+      this.seedG.position.set((Math.random() - 0.5) * 0.5 * k, (Math.random() - 0.5) * 0.5 * k, 0);
+    } else if (this.shatter) {
+      const tb = t - D.burstAt, sh = Math.max(0, 1 - (tb / 1.6) * (tb / 1.6));
+      for (const it of this.shatter) {
+        it.pc.pg.position.addScaledVector(it.v, dt); it.pc.m.rotation.x += it.w.x * dt; it.pc.m.rotation.z += it.w.z * dt;
+        const sc = (1 - 0.42) * sh; it.pc.m.scale.set(sc, sc * it.ys, sc);
+      }
+    }
+  }
+
+  hideAtBurst() {
+    this.seedG.visible = false; this.orbitRing.visible = false; this.equator.visible = false;
+    for (const em of this.ems) em.eg.visible = false;
+  }
+
+  onBurst() {
+    this.shatter = this.pieces.map((pc) => {
+      const v = pc.pg.position.clone(); if (v.lengthSq() < 1e-3) v.set(Math.random() - 0.5, 1, Math.random() - 0.5);
+      v.normalize().multiplyScalar(14 + Math.random() * 26); v.y += (Math.random() - 0.3) * 8;
+      return { pc, v, ys: pc.m.scale.y >= 0 ? 1 : -1, w: { x: (Math.random() - 0.5) * 6, z: (Math.random() - 0.5) * 6 } };
+    });
+    for (const it of this.shatter) it.ys = Math.sign(it.pc.m.scale.y) || 1;
   }
 
   // fight
@@ -202,7 +274,7 @@ export class Regent extends Boss {
       } else if (em.st === 'tele') {
         this.setGlow(em.glow, em.t / 1.0, 24);
         this.emLensPos(em, _o); this.emTarget(em, 0, _t); this.drawBeams(em, _o, _t, 0.12, 0.5, false);
-        if (em.t >= 1.0) { em.st = 'open'; em.t = 0; em.hitCd = 0; em.bolt = 0.5; this.setGlow(em.glow, 0); ctx.audio?.sfx?.('chargedShot', { position: _o }); ctx.fx?.shake?.(0.5, 0.2); }
+        if (em.t >= 1.0) { em.st = 'open'; em.t = 0; em.hitCd = 0; em.bolt = 0.5; this.setGlow(em.glow, 0); ctx.audio?.sfx?.('bossBeam', { position: _o }); ctx.fx?.shake?.(0.5, 0.2); }
       } else if (em.st === 'open') {
         const w = Math.min(1, em.t / em.sweepT);
         this.emLensPos(em, _o); this.emTarget(em, w, _t);
@@ -221,7 +293,7 @@ export class Regent extends Boss {
     em.st = 'tele'; em.t = 0; em.orient = Math.random() < 0.5 ? 'h' : 'v'; em.dir = Math.random() < 0.5 ? -1 : 1; em.sweepT = 2.8 - 0.12 * (NEM - this.emLeft);
     const pl = ctx.player.position, rp = ctx.rail.position;
     em.fix = em.orient === 'h' ? THREE.MathUtils.clamp(pl.y - rp.y + (Math.random() * 2 - 1) * 3, -6, 6) : THREE.MathUtils.clamp(pl.x - rp.x + (Math.random() * 2 - 1) * 5, -12, 12);
-    ctx.audio?.sfx?.('laserCharge', { position: this.position });
+    ctx.audio?.sfx?.('bossCharge', { position: this.position });
   }
 
   emLensPos(em, out) { em.lens.getWorldPosition(out); return out; }
@@ -267,7 +339,7 @@ export class Regent extends Boss {
     if (this.calm > 0) { this.seed.exposed = false; return; }
     if (W.state === 'closed') {
       this.seed.exposed = false;
-      if (W.t >= W.dur) { W.state = 'warn'; W.t = 0; ctx.audio?.sfx?.('laserCharge', { position: this.seed.position }); }
+      if (W.t >= W.dur) { W.state = 'warn'; W.t = 0; ctx.audio?.sfx?.('bossCharge', { position: this.seed.position }); }
     } else if (W.state === 'warn') {
       this.seed.exposed = false;
       this.setGlow(this.seedGlow, W.t / 0.6, 22);
@@ -298,7 +370,7 @@ export class Regent extends Boss {
       this.ringEm = (this.ringEm + 1) % NEM;
       ctx.ui?.warning?.('BURST RING');
     }
-    ctx.audio?.sfx?.('laserCharge', { position: this.position });
+    ctx.audio?.sfx?.('bossCharge', { position: this.position });
   }
 
   runPattern(p, dt, ctx) {
@@ -318,7 +390,7 @@ export class Regent extends Boss {
           if (shot) this.fly.push({ shot, m: it.m, lastAge: 0, spin: Math.random() * 2 + 1 }); else it.m.visible = false;
         }
         this.wallItems = null;
-        ctx.fx?.shake?.(0.6, 0.25); ctx.audio?.sfx?.('chargedShot', { position: this.seed.position });
+        ctx.fx?.shake?.(0.6, 0.25); ctx.audio?.sfx?.('bossCannon', { position: this.seed.position });
       }
       if (p.done) this.endPattern();
     } else if (p.kind === 'spear') {
@@ -332,7 +404,7 @@ export class Regent extends Boss {
           const m = this.take();
           if (shot && m) { m.visible = true; m.scale.set(1.2, 3.0, 1.2); this.fly.push({ shot, m, lastAge: 0, spin: 3 }); }
           else if (m) m.visible = false;
-          ctx.audio?.sfx?.('chargedShot', { position: _o });
+          ctx.audio?.sfx?.('turretLaser', { position: _o });
         }
         if (p.n >= 3) { this.setGlow(this.seedGlow, 0); this.endPattern(); }
       }

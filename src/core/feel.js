@@ -25,6 +25,8 @@ import { registerSpeed } from '../feel/speed.js';
 import { registerLook } from '../feel/look.js';
 import { registerSky } from '../feel/sky.js';
 import { registerAtmosphere } from '../feel/atmosphere.js';
+import { registerCinema } from '../feel/cinema.js';
+import { registerAudio } from '../feel/audio.js';
 
 const listeners = new Set();
 
@@ -168,6 +170,8 @@ registerSpeed(feel);
 registerLook(feel);
 registerSky(feel);
 registerAtmosphere(feel);
+registerCinema(feel);
+registerAudio(feel);
 
 // ?tune=1 only: restore saved values (share link first, then localStorage) and keep saving. Never runs on the normal path.
 export const FEEL_STORAGE_KEY = 'meridian-feel';

@@ -1,4 +1,4 @@
-// Style B, level 3 theme "foundry": oppressive, mechanical, cold, heavy low end. F sharp minor over a fixed F sharp pedal, 86 BPM, 36 bars.
+// Style B, theme "foundry": oppressive, mechanical, cold, heavy low end. F sharp minor over a fixed F sharp pedal, 86 BPM, 36 bars.
 // A stepwise-growing 16th sequencer bass on the pedal, deep sub drone, slow kick with a half-time clap, piston chugs and metal
 // clanks, a cold 3-against-4 tick sequence that phases across the bars, a wide-detuned hollow pad whose chords grind against
 // the pedal (G over F#, C# major over F#), and a brittle two-tone lead motif: tritone down, then up a major seventh.

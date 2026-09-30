@@ -1,4 +1,4 @@
-// Boss 2 (Cinder Belt): THE ORRERY, a Dominion ring-class warship. A long spindle carries a rotating turret ring on
+// Boss of the Cinder Belt: THE ORRERY, a Dominion ring-class warship. A long spindle carries a rotating turret ring on
 // spoke arms, two tilted armillary rings and a cage of six turning shell segments around the reactor core. Hangar arms
 // on the spindle launch interceptor waves, and the core drives a sweeping beam once it is exposed.
 //  P1 SEGMENTS: shoot down the six shell segments as they turn (ring turrets and interceptor waves harass).
@@ -32,6 +32,8 @@ const GORE_SEAM_B = gore(CAGE_R + 0.35, 0.05, SECTOR * 0.94 - 0.05, 0.35, 1.75, 
 // direction (around Z) of the gore's centroid, measured from the geometry itself
 const GORE_PSI = (() => { const a = GORE.attributes.position; let sx = 0, sy = 0; for (let i = 0; i < a.count; i++) { sx += a.getX(i); sy += a.getY(i); } return Math.atan2(sy, sx); })();
 
+let ARC = null;   // torus arc geometries, built on the first defeat
+
 export class Orrery extends Boss {
   constructor(ctx) { super(ctx, 'orrery', 'THE ORRERY'); }
 
@@ -42,6 +44,7 @@ export class Orrery extends Boss {
     this.body.position.z = 20;
     this.radius = 13; this.bounds = new THREE.Vector3(26, 20, 40);
     this.deathColors = [0x8fe0ff, 0xffb340]; this.debrisColor = 0x22366e;
+    this.deathCfg = { flash: '#ffe4b8', sink: 3, sinkAfter: 2, tumble: 0.6 };
     const b = this.body;
     // central spindle
     mesh(merged('orSpindle', [
@@ -141,8 +144,9 @@ export class Orrery extends Boss {
   }
 
   intro() {
-    this.after(0.4, () => this.comm('LUMEN', 'Large contact, ring class. Six shell segments, eight turret mounts, one core.'));
-    this.after(3.4, () => this.comm('CONTROL', 'Designation ORRERY. Holds the Belt lane. Engage.', 3.2));
+    const D = this.cinDelay ?? 0;   // the comm lines wait for the entrance takeover to end
+    this.after(D + 0.3, () => this.comm('LUMEN', 'Large contact, ring class. Six shell segments, eight turret mounts, one core.'));
+    this.after(D + 3.4, () => this.comm('CONTROL', 'Designation ORRERY. Holds the Belt lane. Engage.', 3.2));
     this.after(7.4, () => this.comm('FERRO', 'It is very round. I had hoped for a corner.', 3.2));
     this.segsLeft = NSEG; this.calm = 0; this.waveCd = 6; this.beamCd = 7; this.beam = { state: 'idle', t: 0 }; this.coreOut = 0; this.discA = 1; this.shots = 0;
     this.turretIdx = 0; this.turretCd = 1.5; this.launching = 0;
@@ -167,12 +171,93 @@ export class Orrery extends Boss {
       this.segsLeft--;
       if (this.segsLeft === 3) this.comm('LUMEN', 'Shell integrity 50 percent.', 2.8);
       if (this.segsLeft <= 0 && this.phase === 1) this.setPhase(2);
-    } else if (p === this.core) { this.stopBeam(); this.bossDown(); }
+    } else if (p === this.core) { this.grabBeam(); this.stopBeam(); this.bossDown(); }
   }
 
   startDeath(ctx) {
     super.startDeath(ctx);
-    this.after(1.2, () => this.comm('CONTROL', 'Orrery dark. Belt lane open. Logging.', 3.2));
+    this.after(0.5, () => this.comm('CONTROL', 'Orrery dark. Belt lane open. Logging.', 3.2));
+  }
+
+  focus(out) { return this.coreA.getWorldPosition(out); }
+
+  // ---- defeat: the beam collapses, the ring breaks into six arcs that drift away, the core overloads ----
+  grabBeam() {
+    const b = this.beamOuter;
+    if (b.visible) this.collapse = { t: 0, pos: b.position.clone(), quat: b.quaternion.clone(), w: b.scale.x, len: b.scale.z, op: b.material.opacity };
+  }
+
+  onDeathStart() {
+    if (!ARC) ARC = [NAVY, BRASS, SEAM].map((m, j) => Array.from({ length: NSEG }, (_, k) => {
+      const a = SECTOR * 0.92, g = j === 0 ? new THREE.TorusGeometry(RING_R, 2.6, 6, 10, a) : j === 1 ? new THREE.TorusGeometry(RING_R + 0.4, 0.6, 5, 10, a) : new THREE.TorusGeometry(RING_R - 2.2, 0.32, 4, 10, a);
+      return g.rotateZ(k * SECTOR);
+    }));
+    this.arcs = null; this.arcsAt = 0.9;
+  }
+
+  breakRing(ctx) {
+    const rg = this.ringG, kids = rg.children.filter((c) => c.isMesh);
+    this.hub = new THREE.Group(); rg.add(this.hub);
+    mesh(merged('orHub', [part(G.cyl(7, 7, 4.4, 12), 0, 0, 0, PI2), ...[0, 1, 2, 3, 4, 5].map((i) => part(G.box(RING_R - 5, 1.8, 2.2), Math.cos(i * Math.PI / 3) * (RING_R + 6) / 2, Math.sin(i * Math.PI / 3) * (RING_R + 6) / 2, 0, 0, 0, i * Math.PI / 3))]), NAVY, this.hub);
+    for (const m of kids) m.visible = false;
+    this.arcs = Array.from({ length: NSEG }, (_, k) => {
+      const g = new THREE.Group(); rg.add(g);
+      [NAVY, BRASS, SEAM].forEach((m, j) => { g.add(new THREE.Mesh(ARC[j][k], m)); });
+      const a = (k + 0.46) * SECTOR;
+      g.userData = { dir: new THREE.Vector3(Math.cos(a), Math.sin(a), (Math.random() - 0.5) * 0.4), w: (Math.random() - 0.5) * 0.5, v: 0, ox: 0 };
+      return g;
+    });
+    for (const tg of this.turrets) {
+      const a = Math.atan2(tg.anchor.position.y, tg.anchor.position.x), k = ((Math.floor(((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / SECTOR)) % NSEG);
+      this.arcs[k].add(tg.anchor);
+    }
+    for (const g of this.arcs) {
+      rg.localToWorld(_o.copy(g.userData.dir).multiplyScalar(RING_R));
+      ctx.fx?.explosion?.(_o, { scale: 4.5, color: 0xffb340, debrisColor: 0x22366e }); ctx.fx?.debris?.(_o, 8, 0x22366e);
+    }
+    ctx.fx?.shake?.(1.0, 0.5); ctx.audio?.sfx?.('bigExplosion', { position: this.position, volume: 0.8 });
+  }
+
+  deathPoint(out, k = 0.5) {
+    if (Math.random() < 0.35 && !this.arcs) { const a = Math.random() * Math.PI * 2; out.set(Math.cos(a) * RING_R, Math.sin(a) * RING_R, 4 + (Math.random() - 0.5) * 3); return this.ringG.localToWorld(out); }
+    out.set((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, -52 + 72 * k + (Math.random() - 0.5) * 10);
+    return this.body.localToWorld(out);
+  }
+
+  deathTick(dt, t, S, ctx) {
+    const D = this.dp;
+    if (!S.burst) {
+      this.animate(dt, ctx);
+      const k = Math.min(1, t / D.burstAt);
+      if (!this.arcs && t >= this.arcsAt) this.breakRing(ctx);
+      this.setGlow(this.chargeGlow, k * k, 40); this.coreHalo.scale.setScalar(4 + 22 * k * k); this.gimbal.rotation.z += dt * 6 * k;
+      this.coreA.position.z = CAGE_Z + 6 * k;
+    }
+    if (this.arcs) {
+      const tb = Math.max(0, t - this.arcsAt), sh = S.burst ? Math.max(0, 1 - ((t - D.burstAt) / 1.6) ** 2) : 1;
+      for (const g of this.arcs) {
+        const u = g.userData; u.v = 5 + 4 * tb;
+        g.position.addScaledVector(u.dir, u.v * dt * (S.burst ? 2.2 : 1)); g.rotation.z += u.w * dt; g.rotation.x += u.w * 0.4 * dt;
+        g.scale.setScalar(sh);
+      }
+      this.hub.rotation.z += dt * 0.6;
+    }
+    const c = this.collapse;
+    if (c) {
+      c.t += dt; const k = c.t / 0.9, b = this.beamOuter, i = this.beamInner;
+      if (k >= 1) { b.visible = i.visible = false; this.collapse = null; }
+      else {
+        const w = c.w * (1 - k) * (1 - k) * (0.8 + 0.4 * Math.random());
+        b.visible = i.visible = true; b.position.copy(c.pos); b.quaternion.copy(c.quat); i.position.copy(c.pos); i.quaternion.copy(c.quat);
+        b.scale.set(w, w, c.len); i.scale.set(w * 0.34, w * 0.34, c.len); b.material.opacity = c.op * (1 - k);
+      }
+    }
+  }
+
+  hideAtBurst() {
+    for (const c of this.body.children) if (c !== this.ringG) c.visible = false;
+    if (this.hub) this.hub.visible = false;
+    if (!this.arcs) this.ringG.visible = false;
   }
 
   // fight
@@ -255,7 +340,7 @@ export class Orrery extends Boss {
       this.tgt(B, 0, _t);                       // start point of the sweep
       this.setGlow(this.chargeGlow, Math.min(1, u), 26);
       this.drawBeam(_o, _t, 0.3 + Math.sin(this.age * 40) * 0.05, 0, 0.55);
-      if (B.t >= B.aimT) { B.state = 'sweep'; B.t = 0; ctx.audio?.sfx?.('chargedShot', { position: _o }); ctx.fx?.shake?.(0.8, 0.3); }
+      if (B.t >= B.aimT) { B.state = 'sweep'; B.t = 0; ctx.audio?.sfx?.('bossBeam', { position: _o }); ctx.fx?.shake?.(0.8, 0.3); }
     } else if (B.state === 'sweep') {
       const w = Math.min(1, B.t / B.sweepT);
       this.tgt(B, w, _t);
@@ -290,7 +375,7 @@ export class Orrery extends Boss {
     B.aimT = this.phase === 3 ? 1.5 : 1.9; B.sweepT = this.phase === 3 ? 2.2 : 2.9;
     B.dir = Math.random() < 0.5 ? -1 : 1;
     B.fix = (orient === 'h' ? (Math.random() * 2 - 1) * 5.5 : (Math.random() * 2 - 1) * 9);
-    this.ctx.audio?.sfx?.('laserCharge', { position: this.position });
+    this.ctx.audio?.sfx?.('bossCharge', { position: this.position });
   }
   /** Target point of the beam (world) at sweep progress w in [0,1]: a point in the player's plane, rail relative. */
   tgt(B, w, out) {

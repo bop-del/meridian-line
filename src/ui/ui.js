@@ -32,6 +32,7 @@ export const ui = {
     this.hud = new Hud(ctx, wrap);
     this.commBox = new Comm(ctx, wrap);
     this.buildIntro(wrap);
+    this.buildCinema(wrap);
     this.screens = new Screens(ctx, wrap, this);
     h('div', 'ui-scan', null, wrap);
 
@@ -41,7 +42,9 @@ export const ui = {
     ev.on('warning', (p) => this.warning(typeof p === 'string' ? p : p?.text));
     ev.on('boss:spawn', (p) => {
       // world scripts usually raise their own warning; only add one if none appeared recently
-      if (this.hud.clock - this.hud.lastWarn > 5) this.warning('LARGE CONTACT');
+      // bosses with an entrance takeover show their own WARNING when the shot ends (Boss.showWarning), so no second banner here
+      const hasEntrance = !!ctx.cinema?.shots?.[`boss.${p?.key}.entrance`] || !!ctx.cinema?.active;
+      if (!hasEntrance && this.hud.clock - this.hud.lastWarn > 5) this.warning('LARGE CONTACT');
     });
     ev.on('game:over', () => this.fallback('gameover'));
     ev.on('level:complete', () => this.fallback('levelcomplete'));
@@ -70,6 +73,39 @@ export const ui = {
     if (this.introT > 0) {
       this.introT -= dt;
       if (this.introT <= 0) this.introEl.classList.remove('on');
+    }
+    this.updateCinema(ctx);
+  },
+
+  // ==== letterbox bars and HUD fade, driven by the cinema director (ctx.cinema.bars, barSize, hudAlpha; frozen while paused)
+  buildCinema(parent) {
+    const el = (this.cineEl = h('div', 'cine-bars', null, parent));
+    this.cineTop = h('div', 'cine-bar top', null, el);
+    this.cineBot = h('div', 'cine-bar bot', null, el);
+    this._cine = { bars: -1, size: -1, hud: -1 };
+  },
+
+  updateCinema(ctx) {
+    const c = ctx.cinema, k = this._cine;
+    if (!c || !this.cineEl) return;
+    const title = normPhase(ctx.state.phase) === 'title';
+    let b = title ? Math.min(c.holdBars || 0, c.bars) : c.bars;
+    b = Math.max(0, Math.min(1, Number.isFinite(b) ? b : 0));
+    b = b * b * (3 - 2 * b);
+    const size = Math.max(0, Math.min(0.25, Number.isFinite(c.barSize) ? c.barSize : 0.085));
+    if (Math.abs(size - k.size) > 1e-4) { k.size = size; this.cineEl.style.setProperty('--cine-size', `${(size * 100).toFixed(2)}%`); }
+    if (Math.abs(b - k.bars) > 1e-3 || (b === 0 && k.bars !== 0)) {
+      k.bars = b;
+      const s = `scaleY(${b.toFixed(4)})`;
+      this.cineTop.style.transform = s; this.cineBot.style.transform = s;
+      this.cineEl.classList.toggle('on', b > 0.001);
+    }
+    let a = title ? 1 : c.hudAlpha;
+    a = Math.max(0, Math.min(1, Number.isFinite(a) ? a : 1));
+    if (Math.abs(a - k.hud) > 2e-3 || (a === 1 && k.hud !== 1)) {
+      k.hud = a;
+      this.wrap.style.setProperty('--cine-hud', a.toFixed(3));
+      this.wrap.classList.toggle('cine-fade', a < 0.999);
     }
   },
 

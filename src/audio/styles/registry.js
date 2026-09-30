@@ -2,8 +2,9 @@
 import { style as a } from './a/index.js';
 import { style as b } from './b/index.js';
 import { style as c } from './c/index.js';
+import { style as d } from './d/index.js';
 
-export const STYLES = { b, a, c };                  // insertion order is the cycle order in the UI (B is the default)
+export const STYLES = { b, a, c, d };               // insertion order is the cycle order in the UI (B is the default)
 export const DEFAULT_STYLE = 'b';
 export const TRACK_NAMES = ['title', 'thalassa', 'cinder', 'foundry', 'boss', 'victory', 'gameover'];
 

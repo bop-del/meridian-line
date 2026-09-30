@@ -24,7 +24,7 @@ From top to bottom:
 
 - **Readouts.** FPS, frame time (p95, the slow end of recent frames), camera lag (how far the camera trails behind where it wants to be, in world units), rail speed, field of view and current shake. These are live.
 - **Filter box and preset menu.** Type part of a name, hint or group to show only matching values (groups open automatically). The preset menu switches everything at once. It reads `custom` when your values match none of them.
-- **Groups.** `handling`, `impact` and `speed`. Each group is folded into sections (Input, Ship, Bank, Roll, Boost, Brake, Camera and so on). Click a group or section name to fold it. A dot and a count next to a name shows how many values inside are changed.
+- **Groups.** `handling`, `impact`, `speed`, `look`, `sky`, `atmosphere`, `cinema` and `audio`. Each group is folded into sections (Input, Ship, Bank, Roll, Boost, Brake, Camera and so on). Click a group or section name to fold it. A dot and a count next to a name shows how many values inside are changed.
 - **One row per value.** Name, unit, a slider and a number box. The grey tick on a slider marks the default. Type an exact number in the box and press Enter. A changed value turns amber and gets a filled dot: click the dot (or double-click the name) to put that one value back. Hover any row for its hint at the bottom of the panel.
 - **File buttons.** `Copy values`, `JSON`, `Paste`, `Share link` and `Reset all` (see "Sending values back").
 - **Test moves.** `Turn`, `Boost`, `Brake`, `Roll`. They press the real keys for you, so they go through the same input code as your keyboard, including the smoothing. They only work during a level.
@@ -40,6 +40,8 @@ Your changes are saved in the browser (local storage keys `meridian-feel` for va
 - **speed.** How fast it feels. Field-of-view kick on boost and brake, speed streaks and dust, motion blur and chromatic fringe, and the boost and brake visuals.
 - **look.** The post-processing and colour grade, with one set of values per level (`thalassa_`, `cinder_`, `foundry_`): bloom, white-out guard, light shafts, lens flare, height fog, far blur, contrast, saturation and the shadow and highlight tints. Presets: `cinematic` (the default) and `clean` (everything mild, near neutral grade), handy for judging what the look adds.
 - **sky.** Sky and water: cloud cover and light, sun scattering and glow per level, and for Thalassa Coast the sea colours, reflections, glitter, foam and shallows.
+- **cinema.** Camera choreography: intro flythrough length and strength per level, the signature camera moments, the letterbox bars, blend times and FOV kicks. Presets: `cinematic` (default) and `restrained`.
+- **audio.** Mix and sound: bus levels, how deep and how long the music ducks under dialogue and explosions, how strongly sounds are positioned, the engine tone range, and the pilot radio voices.
 - **atmosphere.** Level mood: fog, ambient particles, the Foundry furnace and beams, the Cinder Belt embers and dust ring, boss hero lights and the explosion flash guard.
 
 Every value has a hint. If a name is unclear, hover it.
@@ -110,7 +112,7 @@ The budgets are deliberately loose: they catch broken feel, not taste. Tighten t
 
 ## For developers: adding a tunable value
 
-Register it in the file for its group (`src/feel/handling.js`, `impact.js`, `speed.js`, `look.js`, `sky.js` or `atmosphere.js`) and read it as `feel.p.<group>.<key>` every frame, never cached:
+Register it in the file for its group (`src/feel/handling.js`, `impact.js`, `speed.js`, `look.js`, `sky.js`, `atmosphere.js`, `cinema.js` or `audio.js`) and read it as `feel.p.<group>.<key>` every frame, never cached:
 
 ```js
 feel.register('speed', {

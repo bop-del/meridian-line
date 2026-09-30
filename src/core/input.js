@@ -112,6 +112,7 @@ export const input = {
   capture: false,          // game.js sets true while playing: blocks page scroll and browser defaults for game keys
   usingGamepad: false,
   invertY: false,
+  autopilot: null,          // showcase mode and tests: see the end of update()
   fire: false, bomb: false, boost: false, brake: false,
   rollLeft: false, rollRight: false, pause: false, confirm: false,
   firePressed: false, fireReleased: false,
@@ -130,7 +131,7 @@ export const input = {
       if (STEER_KEYS.has(e.code)) this.stamp = performance.now();
       pendingJust.add(e.code);
       down.add(e.code);
-      if (e.code === 'KeyM') this.mouseAim = !this.mouseAim;
+      if (e.code === 'KeyM' && this.capture) this.mouseAim = !this.mouseAim;   // in flight only, M cycles the music style on the title
     });
     addEventListener('keyup', (e) => {
       if (!down.delete(e.code)) return;
@@ -281,5 +282,19 @@ export const input = {
     actionState.pause = pauseEdge; actionState.confirm = confirmEdge;
     // pulse actions are edges by nature, do not double-report through justPressed
     actionPrev.bomb = actionPrev.rollLeft = actionPrev.rollRight = actionPrev.pause = actionPrev.confirm = false;
+
+    // autopilot (showcase mode and tests): fields set on input.autopilot replace what the player would have pressed this frame.
+    //   axis {x, y} steering, aim {x, y} reticle, fire, boost, brake (held), bomb, rollLeft, rollRight (pulses, true for one frame)
+    const ap = this.autopilot;
+    if (ap) {
+      if (ap.axis) { this.axis.x = ap.axis.x; this.axis.y = ap.axis.y; this.rawAxis.x = ap.axis.x; this.rawAxis.y = ap.axis.y; }
+      if (ap.aim) { this.aim.x = ap.aim.x; this.aim.y = ap.aim.y; }
+      if (ap.fire !== undefined) { const was = this.fire; this.fire = !!ap.fire; actionState.fire = this.fire; this.firePressed = this.fire && !was; this.fireReleased = !this.fire && was; }
+      if (ap.boost !== undefined) { this.boost = !!ap.boost; actionState.boost = this.boost; }
+      if (ap.brake !== undefined) { this.brake = !!ap.brake; actionState.brake = this.brake; }
+      if (ap.bomb) { this.bomb = true; actionState.bomb = true; ap.bomb = false; }
+      if (ap.rollLeft) { this.rollLeft = true; actionState.rollLeft = true; ap.rollLeft = false; }
+      if (ap.rollRight) { this.rollRight = true; actionState.rollRight = true; ap.rollRight = false; }
+    }
   },
 };

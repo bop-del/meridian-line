@@ -1,9 +1,10 @@
 // Lists every sound effect for the sfx lab page, grouped by owner file, and holds the shared playback chain
-// (the same gain, compressor and limiter as the game) used by the lab page and the offline test renders.
+// (the same gain, compressor and limiter as the game, built by mix.js) used by the lab page and the offline test renders.
 import { SFX, SFX_META } from '../sfx.js';
 import { tone, noise } from '../synth.js';
 import { WEAPON_SFX } from './weapons.js';
 import { IMPACT_SFX } from './impacts.js';
+import { createMasterChain } from '../mix.js';
 
 export function sfxGroups() {
   const weapons = Object.keys(WEAPON_SFX), impacts = Object.keys(IMPACT_SFX);
@@ -24,17 +25,12 @@ export function rapidInterval(name) {
   return Math.max(0.12, (m?.gap ?? 0.05) * 2.5);
 }
 
-/** The game's mix chain: sfx gain, compressor, limiter, master gain (audio.js buildGraph). Works on Offline contexts too. */
+/** The game's master chain, shared with the game through mix.js (sfx gain, compressor, limiter, master gain). Works on Offline contexts too. */
 export function createSfxChain(ac, master = 0.8) {
   const sfxIn = ac.createGain(); sfxIn.gain.value = 0.9;
-  const mix = ac.createGain();
-  const comp = ac.createDynamicsCompressor();
-  comp.threshold.value = -16; comp.knee.value = 14; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
-  const limiter = ac.createDynamicsCompressor();
-  limiter.threshold.value = -3; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = 0.001; limiter.release.value = 0.08;
-  const out = ac.createGain(); out.gain.value = master;
-  sfxIn.connect(mix); mix.connect(comp); comp.connect(limiter); limiter.connect(out); out.connect(ac.destination);
-  return { sfxIn, mix, comp, limiter, master: out, active: {}, last: {}, total: 0 };
+  const chain = createMasterChain(ac, { master });
+  sfxIn.connect(chain.input);
+  return { sfxIn, mix: chain.input, comp: chain.comp, limiter: chain.limiter, master: chain.master, active: {}, last: {}, total: 0 };
 }
 
 /**

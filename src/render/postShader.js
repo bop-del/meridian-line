@@ -122,7 +122,7 @@ export const PostShader = {
     }`,
 };
 
-// Round 1 sanitise shader, kept for tools and comparison. The live chain uses SanitizeFogShader (src/render/passes/fogPass.js),
+// Original sanitise shader, kept for tools and comparison. The live chain uses SanitizeFogShader (src/render/passes/fogPass.js),
 // which does the same NaN, Inf and ceiling clamp and adds the height fog in the same pass.
 export const SanitizeShader = {
   name: 'Sanitize',

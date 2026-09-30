@@ -187,7 +187,7 @@ export class Enemy {
     });
     ctx.fx?.muzzleFlash?.(origin, dir, o.color ?? 0xff5533);
     ctx.fx?.fireFlare?.(origin, o.glowColor ?? o.color ?? 0xff8a3a, o.flare ?? 1);
-    ctx.audio?.sfx?.('enemyShot', { position: origin });
+    if ((o.radius ?? 0.7) < 2) ctx.audio?.sfx?.((o.radius ?? 0.7) >= 0.95 ? 'turretLaser' : 'enemyLaser', { position: origin });   // radius 2 and up: the boss cue is played by the boss itself
     return shot;
   }
 

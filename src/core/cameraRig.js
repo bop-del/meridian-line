@@ -1,12 +1,20 @@
 // Chase camera with trailing spring follow, look-ahead that leads the turn, swing with sideways speed, roll into the bank,
-// speed dependent distance and height (push in on boost, pull back on brake, a short lag when the speed jumps), level intro
-// swoop, death cam, and the orbit shot used behind the title and end screens.
+// speed dependent distance and height (push in on boost, pull back on brake, a short lag when the speed jumps), death cam, and the
+// orbit shot used behind the title and end screens. On top of the base camera three layers from the cinema director (ctx.cinema,
+// src/fx/cinema.js) are composed every frame:
+//   1. signature moment: offsets added to the chase TARGET (so the chase springs smooth it and the chase safety limits still hold)
+//   2. level intro: a rail relative flythrough blended over the damped chase camera with the intro weight (1 at the start, 0 at the end)
+//   3. takeover shot (mode 'cinema'): a world space pose blended over whatever the base camera is with cinema.weight
+// Layers blend position linearly and orientation with a quaternion slerp, so no blend ever swings through a strange direction. The
+// chase springs keep running under every layer, so handing the camera back never pops.
 // All chase values are live feel parameters (feel.p.handling.cam*, src/feel/handling.js), read every frame.
 // FOV = camFov + ctx.speedfx.fovKick (the speed module owns the kick curve). Shake comes only from ctx.impact.
 // The chase springs run in rail-local space (camera minus rail anchor), so forward travel never adds lag; only changes in
 // the desired pose do. Springs are critically damped by default (camDamping 1), substepped and allocation free.
-// Public: mode, cur { pos, look, fov, roll }, ideal { pos, look } (undamped chase target, for telemetry),
-//   lag (distance between ideal and actual chase position), addTrauma(x), startIntro(), reset().
+// Public: mode ('title' | 'orbit' | 'victory' | 'death' | 'chase', or 'intro' / 'cinema' while those layers own the view), base (the
+//   base mode under the layers), cur { pos, look, fov, roll }, ideal { pos, look } (undamped chase target, for telemetry),
+//   chaseOut { pos, look, fov } (the live chase camera, helpers.chasePose), lag (distance between ideal and actual chase position),
+//   addTrauma(x), startIntro(), reset().
 import * as THREE from 'three';
 import { config } from '../config.js';
 import { feel } from './feel.js';
@@ -16,6 +24,7 @@ const clamp = THREE.MathUtils.clamp;
 const smooth = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 const DEG = Math.PI / 180;
 const hp = () => feel.p.handling || {};
+const fin = Number.isFinite;
 
 const _pos = new THREE.Vector3();
 const _look = new THREE.Vector3();
@@ -23,8 +32,17 @@ const _tmp = new THREE.Vector3();
 const _tmpLook = new THREE.Vector3();
 const _shake = new THREE.Vector3();
 const _d = new THREE.Vector3();
+const _lp = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+const _ql = new THREE.Quaternion();
+const _qr = new THREE.Quaternion();
+const _m = new THREE.Matrix4();
+const _up = new THREE.Vector3(0, 1, 0);
+const _z = new THREE.Vector3(0, 0, 1);
+const _fwd = new THREE.Vector3();
 // ideal chase target in rail-local space, written by chasePose
 const _il = { px: 0, py: 0, pz: 0, lx: 0, ly: 0, lz: 0 };
+const NO_OFFSET = { cx: 0, cy: 0, cz: 0, lx: 0, ly: 0, lz: 0, fov: 0, roll: 0 };
 
 // Damped spring on s = { x, v } toward target. freq in Hz, zeta damping ratio (1 critical). Substepped for stability.
 function spring(s, target, freq, zeta, dt) {
@@ -41,43 +59,59 @@ function spring(s, target, freq, zeta, dt) {
 }
 const sp = () => ({ x: 0, v: 0 });
 
+// camera orientation for a look at plus a roll around the view axis (same result as camera.lookAt then rotateZ)
+function orient(pos, look, roll, out) {
+  if (pos.distanceToSquared(look) < 1e-8) _lp.copy(pos).z -= 1; else _lp.copy(look);
+  _m.lookAt(pos, _lp, _up);
+  out.setFromRotationMatrix(_m);
+  if (roll) out.multiply(_qr.setFromAxisAngle(_z, roll));
+  return out;
+}
+
 export const cameraRig = {
   ctx: null,
   appliesShake: true,   // the shake comes from ctx.impact (src/fx/impact.js); render.js checks this flag
   time: 0,
   mode: 'title',
+  base: 'title',
   modeT: 0,
-  introT: 99,
   // chase spring state (rail-local)
   s: { px: sp(), py: sp(), pz: sp(), lx: sp(), ly: sp(), roll: sp() },
   roll: 0, fov: cc.fov,
-  // pose snapshot for transitions, stored relative to the rail anchor so a blend never stalls against forward travel
+  // pose snapshot for base mode transitions, stored relative to the rail anchor so a blend never stalls against forward travel
   snapPos: new THREE.Vector3(), snapLook: new THREE.Vector3(), snapFov: cc.fov, snapRoll: 0,
   blendT: 1, blendDur: 1,
   _railAtPose: new THREE.Vector3(),   // rail anchor the current camera pose was computed against (last frame)
   cur: { pos: new THREE.Vector3(), look: new THREE.Vector3(), fov: cc.fov, roll: 0 },
   ideal: { pos: new THREE.Vector3(), look: new THREE.Vector3() },
+  chaseOut: { pos: new THREE.Vector3(), look: new THREE.Vector3(), fov: cc.fov },
   lag: 0,
   deathPos: new THREE.Vector3(),
   orbitA: 0.6,
+  // takeover start snapshot (a shot that starts while the previous one is still blending out starts from the actual camera)
+  _shotId: 0, _shotSnap: false, _snapQ: new THREE.Quaternion(), _snapP: new THREE.Vector3(), _snapFov: cc.fov, _snapDist: 30,
+  _curQ: new THREE.Quaternion(), _curDist: 30,
 
   init(ctx) {
     this.ctx = ctx;
   },
 
   reset(ctx) {
-    this.introT = 99;
     this.roll = 0; this.fov = hp().camFov ?? cc.fov;
     this.snapToChase(ctx);
     this.blendT = 1;
+    this._shotSnap = false;
+    this._shotId = ctx.cinema?.shotId ?? 0;
   },
 
   addTrauma(x) { this.ctx?.impact?.addShake?.(x, x / 1.5); },   // compatibility forwarder
 
+  // Level start: a cut to the chase camera with the intro flythrough layered on top (the director runs it).
   startIntro(ctx = this.ctx) {
-    this.introT = 0;
     this.snapToChase(ctx);
-    this.setMode('intro', ctx, 0);
+    this.setMode('chase', ctx, 0);
+    this.fov = this.chasePose(ctx);
+    ctx.cinema?.startIntro?.(ctx);
   },
 
   // Place the chase springs at their ideal pose so entering chase mode never pops
@@ -90,19 +124,21 @@ export const cameraRig = {
     this.roll = 0;
   },
 
+  // Base mode change with a blend from the current camera. blend 0 cuts.
   setMode(mode, ctx, blend = 0.9) {
-    if (mode === this.mode) return;
+    if (mode === this.base) return;
     this.snapPos.copy(ctx.camera.position).sub(this._railAtPose);
     this.snapLook.copy(this.cur.look).sub(this._railAtPose);
     this.snapFov = this.cur.fov; this.snapRoll = this.cur.roll;
-    this.mode = mode; this.modeT = 0;
-    this.blendT = 0; this.blendDur = blend;
+    this.base = mode; this.mode = mode; this.modeT = 0;
+    this.blendT = blend > 0 ? 0 : 1; this.blendDur = Math.max(1e-3, blend);
   },
 
   // ---------------------------------------------------------------- poses (write into _pos, _look; return fov)
-  // Ideal (undamped) chase pose. Also fills the rail-local target _il and this.ideal.
+  // Ideal (undamped) chase pose including the signature moment offsets. Also fills the rail-local target _il and this.ideal.
   chasePose(ctx) {
     const h = hp(), p = ctx.player, rail = ctx.rail, rp = rail.position;
+    const mo = ctx.cinema?.moment?.on ? ctx.cinema.moment.off : NO_OFFSET;
     const ox = p.localOffset.x, oy = p.localOffset.y, vx = p.localVelocity?.x || 0;
     // normalised speed above and below base (boost push in, brake pull back)
     const cb = config.rail.baseSpeed;
@@ -116,17 +152,17 @@ export const cameraRig = {
     const accLag = clamp((rail.accel || 0) * (h.camAccelLag ?? 0), -3, 3);
     const dist = (h.camDistance ?? cc.distance) - up * (h.camBoostPush ?? 0) + dn * (h.camBrakePull ?? 0) + accLag;
     const height = (h.camHeight ?? cc.height) + up * (h.camBoostHeight ?? 0) + dn * (h.camBrakeHeight ?? 0);
-    _il.px = ox * (h.camFollowX ?? cc.followX) - vx * (h.camSwing ?? 0);
-    _il.py = oy * (h.camFollowY ?? cc.followY) + height;
-    _il.pz = Math.max(3, dist);
-    _il.lx = ox * (h.camLookX ?? cc.lookX) + vx * (h.camLookLead ?? 0);
-    _il.ly = oy * (h.camLookY ?? cc.lookY) + 0.6;
-    _il.lz = -(h.camLookAhead ?? cc.lookAhead);
+    _il.px = ox * (h.camFollowX ?? cc.followX) - vx * (h.camSwing ?? 0) + mo.cx;
+    _il.py = oy * (h.camFollowY ?? cc.followY) + height + mo.cy;
+    _il.pz = Math.max(3, dist + mo.cz);
+    _il.lx = ox * (h.camLookX ?? cc.lookX) + vx * (h.camLookLead ?? 0) + mo.lx;
+    _il.ly = oy * (h.camLookY ?? cc.lookY) + 0.6 + mo.ly;
+    _il.lz = -(h.camLookAhead ?? cc.lookAhead) - mo.lz;
     _pos.set(rp.x + _il.px, rp.y + _il.py, rp.z + _il.pz);
     _look.set(rp.x + _il.lx, rp.y + _il.ly, rp.z + _il.lz);
     this.ideal.pos.copy(_pos); this.ideal.look.copy(_look);
     const kick = ctx.speedfx?.fovKick;
-    return (h.camFov ?? cc.fov) + (Number.isFinite(kick) ? kick : 0);
+    return (h.camFov ?? cc.fov) + (Number.isFinite(kick) ? kick : 0) + mo.fov;
   },
 
   orbitPose(ctx, wide = 1) {
@@ -138,25 +174,6 @@ export const cameraRig = {
     _pos.set(p.position.x + Math.sin(a) * r, p.position.y + 1.6 + Math.sin(this.time * 0.35) * 0.5, p.position.z + Math.cos(a) * r * 1.1);
     _look.set(p.position.x, p.position.y + 3.3 * wide, p.position.z - 0.5);
     return 50;
-  },
-
-  introPose(ctx) {
-    const p = ctx.player;
-    const t = clamp(this.introT / cc.introTime, 0, 1);
-    const e = smooth(t);
-    // chase pose target
-    const fov = this.chasePose(ctx);
-    const chasePos = _tmp.copy(_pos);
-    const chaseLook = _tmpLook.copy(_look);
-    // swoop: starts low and to the front right of the ship, sweeping around behind it
-    const a = (1 - e) * 2.5;
-    const r = 8 + (1 - e) * 5;
-    const sx = p.position.x + Math.sin(a) * r * 0.9;
-    const sy = p.position.y + 1.2 + (1 - e) * 1.4 + e * 2.2;
-    const sz = p.position.z + Math.cos(a) * r;
-    _pos.set(sx, sy, sz).lerp(chasePos, e * e);
-    _look.set(p.position.x, p.position.y + 0.4, p.position.z - 2).lerp(chaseLook, e);
-    return 58 + (fov - 58) * e;
   },
 
   deathPose(ctx) {
@@ -187,9 +204,10 @@ export const cameraRig = {
     const dl = _d.length();
     if (dl < minD) _pos.copy(pp).addScaledVector(dl > 1e-4 ? _d.multiplyScalar(1 / dl) : _d.set(0, 0.3, 1).normalize(), minD);
     if (_look.z > _pos.z - 4) _look.z = _pos.z - 4;
-    // roll into the bank (the barrel roll spin is not included)
+    // roll into the bank (the barrel roll spin is not included), plus the moment roll
     const maxRoll = 20 * DEG;
-    const target = clamp((p.bankAngle ?? -p.bank * 0.66) * (h.camRoll ?? 0.22), -maxRoll, maxRoll);
+    const mo = ctx.cinema?.moment?.on ? ctx.cinema.moment.off : NO_OFFSET;
+    const target = clamp((p.bankAngle ?? -p.bank * 0.66) * (h.camRoll ?? 0.22) + mo.roll, -maxRoll, maxRoll);
     this.roll = clamp(spring(s.roll, target, h.camRollFreq ?? 1.8, z, dt), -maxRoll, maxRoll);
     return fov;
   },
@@ -200,30 +218,28 @@ export const cameraRig = {
     this.modeT += dt;
     const st = ctx.state;
     const phase = st.phase;
+    const cin = ctx.cinema;
 
-    // choose mode
+    // choose the base mode
     let want;
     if (phase === 'title') want = 'title';
     else if (phase === 'levelcomplete') want = 'orbit';
     else if (phase === 'victory') want = 'victory';
     else if (phase === 'gameover') want = 'death';
     else if (!ctx.player.alive) want = 'death';
-    else if (this.introT < cc.introTime) want = 'intro';
     else want = 'chase';
-    if (phase === 'playing' || phase === 'paused') { if (this.introT < 99 && phase === 'playing') this.introT += dt; }
-    if (want !== this.mode) {
+    if (want !== this.base) {
       if (want === 'chase') this.snapToChase(ctx);
       if (want === 'death') this.deathPos.copy(ctx.player.position);   // the death cam frames the wreck where it went down
       this.setMode(want, ctx, want === 'chase' ? 0.9 : want === 'death' ? 0.6 : 1.4);
     }
 
     let fov = cc.fov, roll = 0;
-    switch (this.mode) {
+    switch (this.base) {
       case 'title': this.orbitA += dt * 0.16; fov = this.orbitPose(ctx, 1); break;
       case 'orbit': this.orbitA += dt * 0.22; fov = this.orbitPose(ctx, 1.1); break;
       case 'victory': this.orbitA += dt * 0.12; fov = this.orbitPose(ctx, 1.5); break;
       case 'death': fov = this.deathPose(ctx); break;
-      case 'intro': fov = this.introPose(ctx); break;
       default: fov = this.chaseUpdate(ctx, dt); roll = this.roll;
     }
     // the speed module smooths its FOV kick; here only a light filter so mode changes never step
@@ -246,18 +262,67 @@ export const cameraRig = {
       fRoll = this.snapRoll + (roll - this.snapRoll) * b;
       fFov = this.snapFov + (this.fov - this.snapFov) * b;
     }
+    if (this.base === 'chase') { this.chaseOut.pos.copy(_pos); this.chaseOut.look.copy(_look); this.chaseOut.fov = fFov; }
+
+    // ---- layers
+    orient(_pos, _look, fRoll, _q);
+    let dist = Math.max(1, _pos.distanceTo(_look));
+    let mode = this.base;
+    // level intro flythrough (only over the chase camera)
+    const it = cin?.intro;
+    if (it?.on && this.base === 'chase' && it.weight > 0) {
+      const w = clamp(it.weight, 0, 1), ip = it.pose;
+      orient(ip.pos, ip.look, ip.roll, _ql);
+      _pos.lerp(ip.pos, w);
+      _q.slerp(_ql, w);
+      fFov += (ip.fov - fFov) * w;
+      fRoll += (ip.roll - fRoll) * w;
+      dist += (Math.max(1, ip.pos.distanceTo(ip.look)) - dist) * w;
+      mode = 'intro';
+    }
+    // takeover shot
+    const cw = cin ? clamp(cin.weight || 0, 0, 1) : 0;
+    if (cin && cin.shotId !== this._shotId) {
+      this._shotId = cin.shotId;
+      this._shotSnap = !!cin.fromSnapshot;
+      if (this._shotSnap) {
+        this._snapP.copy(this.cur.pos).sub(this._railAtPose);
+        this._snapQ.copy(this._curQ); this._snapFov = this.cur.fov; this._snapDist = this._curDist;
+      }
+    }
+    if (cw > 0) {
+      const cp = cin.pose;
+      if (this._shotSnap && cin.active && cin.t <= (cin._cfg?.blendIn ?? 0) + 0.05) {
+        _pos.copy(this._snapP).add(ctx.rail.position); _q.copy(this._snapQ); fFov = this._snapFov; dist = this._snapDist;
+      } else this._shotSnap = false;
+      orient(cp.pos, cp.look, cp.roll, _ql);
+      _pos.lerp(cp.pos, cw);
+      _q.slerp(_ql, cw);
+      fFov += (cp.fov - fFov) * cw;
+      fRoll += (cp.roll - fRoll) * cw;
+      dist += (Math.max(1, cp.pos.distanceTo(cp.look)) - dist) * cw;
+      mode = 'cinema';
+    }
+    this.mode = mode;
+    if (!fin(_pos.x) || !fin(_pos.y) || !fin(_pos.z) || !fin(_q.x) || !fin(_q.y) || !fin(_q.z) || !fin(_q.w)) {
+      // last line of defence: never hand a broken pose to the renderer
+      this.chasePose(ctx); orient(_pos, _look, 0, _q); fFov = this.fov; fRoll = 0; dist = 30;
+    }
+    if (!fin(fFov)) fFov = hp().camFov ?? cc.fov;
 
     const cam = ctx.camera;
     cam.position.copy(_pos).add(_shake);
-    cam.lookAt(_look);
-    if (fRoll || shakeRoll) cam.rotateZ(fRoll + shakeRoll);
+    cam.quaternion.copy(_q);
+    if (shakeRoll) cam.rotateZ(shakeRoll);
     // FOV widened on narrow screens so the play field stays visible
     const aspect = cam.aspect || 1.78;
     const fovOut = clamp(fFov * (1 + Math.max(0, 1.5 - aspect) * 0.35), 20, 140);
     if (Math.abs(cam.fov - fovOut) > 0.01) { cam.fov = fovOut; cam.updateProjectionMatrix(); }
 
+    this._curQ.copy(_q); this._curDist = dist;
     this.cur.pos.copy(cam.position);
-    this.cur.look.copy(_look);
+    _fwd.set(0, 0, -1).applyQuaternion(_q);
+    this.cur.look.copy(_pos).addScaledVector(_fwd, dist);
     this.cur.fov = fFov; this.cur.roll = fRoll;
     this._railAtPose.copy(ctx.rail.position);
   },

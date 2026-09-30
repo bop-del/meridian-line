@@ -1,4 +1,4 @@
-// Style B, level 1 theme "thalassa": bright, airy, forward-driving dark synthwave. D lydian / mixolydian, 104 BPM, 40 bars.
+// Style B, theme "thalassa": bright, airy, forward-driving dark synthwave. D lydian / mixolydian, 104 BPM, 40 bars.
 // Four-on-the-floor kick, gated clap, octave-gallop bass, bright detuned pad with a slow sweep, gated 16th arp, high sparkles
 // into a wide delay, and a leaping lead motif (fifths and sixths, one lydian G# spark) that is answered higher in the second peak.
 // Arc: intro (pad, drone) > build (bass pulse, kick, hats, arp) > peak 1 (motif) > peak 2 (lift, higher answer) > release > intro.

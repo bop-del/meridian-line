@@ -211,6 +211,7 @@ class Wingman {
     _d.divideScalar(len);
     ctx.projectiles.firePlayerShot(_o, _d, { damage: 0.6, speed: 150, color: SHOT_COLOR[this.name], owner: 'ally' });
     ctx.fx?.muzzleFlash?.(_o, _d, SHOT_COLOR[this.name]);
+    ctx.audio?.sfx?.(this.name === 'pip' ? 'allyBlip' : 'allyLaser', { position: _o, pitch: this.name === 'vex' ? 1.12 : 1 });
   }
 
   _startManeuver(kind) {

@@ -32,7 +32,7 @@ Control tips appear as a small prompt line at the bottom of the screen.
 
 Browsers block audio until the first key press, click or tap, so a fresh page load opens with a one-time prompt: PRESS ANY KEY FOR SOUND (TAP FOR SOUND on touch screens). That first key press or click unlocks the audio engine, starts the title theme and is consumed, so Enter cannot start the game before the sound is on. After that the normal title appears.
 
-The MUSIC STYLE selector (title screen, M key or the arrows, and the pause menu) picks one of three styles that set the music for the title, all three levels, the boss fights and the victory and game over stingers. The choice is remembered in the browser. A small speaker icon on the title and pause screens, and the SOUND row in the pause menu, mute and unmute everything; the mute state is remembered too.
+The MUSIC STYLE selector (title screen, M key or the arrows, and the pause menu) picks one of four styles (dark synthwave, cinematic drift, restrained orchestral and hypnotic melodic techno) that set the music for the title, all three levels, the boss fights and the victory and game over stingers. The choice is remembered in the browser. A small speaker icon on the title and pause screens, and the SOUND row in the pause menu, mute and unmute everything; the mute state is remembered too.
 
 ## Features
 
@@ -43,7 +43,7 @@ The MUSIC STYLE selector (title screen, M key or the arrows, and the pause menu)
 - Comm traffic in three forms: portraits (VEX as a helmeted pilot, FERRO as a full-face visor helmet with a data-lens glyph, and the enemy AI REGENT as a waveform), typed text readouts (PIP, LUMEN, SABLE) and a text-only dispatch card from CONTROL
 - KILLS counter and combo multiplier during play, and a per-level results screen with a letter rank (S, A, B or C) from score against par, shield remaining, lives lost, time and escorts still flying
 - Three difficulties: easy, normal, hard
-- Synthesised soundtrack with layered intensity, three selectable music styles (each with its own title, level, boss and sting themes) and spatialised effects
+- Synthesised soundtrack with layered intensity, four selectable music styles (each with its own title, level, boss and sting themes) and spatialised effects
 - Tuned handling: a snappy, banking ship with a spring-mounted chase camera that leans into turns, layered screen shake and hit-stop that make impacts land, a speed sense built from FOV kick, streaks and motion blur
 - A cinematic look: controlled HDR bloom, height fog, sun light shafts, a lens flare, a mild far blur and a colour grade per level, over a procedural ocean, clouds and sun scattering. On slower GPUs the adaptive quality gives things up in a fixed order (depth of field, shafts, water detail, bloom quality, then resolution) and leaves quality alone when the display caps the frame rate
 
@@ -54,6 +54,15 @@ The MUSIC STYLE selector (title screen, M key or the arrows, and the pause menu)
 | 1 | OBSIDIAN FOUNDRY: the Regent's forge | The Regent, a crystalline sovereign core encircled by four orbital prism emitters that only take damage while their lens is open | Black glass, molten metal, blue-white smelter beams |
 | 2 | THE CINDER BELT: through the burning debris | The Orrery, a ring-shaped warship with rotating segments and a sweeping beam | Ember-red debris with glowing cracks against a dark cyan void |
 | 3 | THALASSA COAST: a strike on a Dominion landing fleet | The Tidebreaker, a siege barge held by three mooring cables. Cut the cables, then reflect its siege shell with a barrel roll or shoot the armour off | Teal water, twin gold suns, coral spires and reef arches |
+
+## In motion
+
+The GIFs are captured from the game itself by [showcase mode](docs/SHOWCASE.md), an autopilot that flies a level with the cinematic camera. Play it yourself at `?showcase=1` (it turns on god mode, so the ship cannot be destroyed).
+
+| | |
+|---|---|
+| ![An orbit shot round the Regent fight in the Obsidian Foundry](docs/foundry.gif) | ![The Regent's defeat finisher](docs/regent.gif) |
+| ![The Orrery's rings collapse in the Cinder Belt](docs/cinder.gif) | ![The Tidebreaker's entrance over Thalassa Coast](docs/thalassa.gif) |
 
 ## Run locally
 
@@ -69,6 +78,7 @@ The build uses relative asset paths (`base: './'`), so the contents of `dist/` c
 ## Project layout
 
     src/core/       game loop and phases, input, rail, collision, camera rig, the feel registry
+    src/cinema/     level intro flythroughs, signature camera moments and camera helpers (the takeover director is src/fx/cinema.js)
     src/feel/       the tunable values (handling, impact, speed, look, sky, atmosphere) and their presets
     src/dev/        the ?tune=1 tuning panel and the ?diag=1 black frame detector
     src/entities/   the player controller and projectiles
@@ -79,18 +89,19 @@ The build uses relative asset paths (`base: './'`), so the contents of `dist/` c
     src/models/     procedural ship models
     src/render/     renderer and post chain (passes/), effect quality tiers (tiers.js), grade shader
     src/fx/         pooled particles, explosions, debris, impact feedback (shake, hit-stop), speed streaks and FOV kick
+    src/showcase/   the ?showcase=1 autopilot and its extra camera shots
     src/ui/         HUD, menus, comm box and text readouts, portraits
-    src/audio/      synth, sound effects, sequenced music, the three music styles
+    src/audio/      synth, sound effects, sequenced music, the four music styles, mix bus, positioned sound, engine and radio voices
     music-lab.html  audition every track of every music style
-    sfx-lab.html    audition every sound effect
+    sfx-lab.html    audition every sound effect (old versus new, rapid fire, measured numbers, a family of shots in a row)
     tools/          headless test helpers (system Chrome through puppeteer-core)
-    docs/           architecture notes
+    docs/           architecture notes, the tuning panel guide, showcase mode and the README GIFs
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the modules fit together.
 
 ## Testing helpers
 
-URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?style=a|b|c` (music style, also `?title=`), `?tune=1` (live tuning panel, also opened by FEEL TUNING in the pause menu, see [docs/TUNING.md](docs/TUNING.md)), `?telemetry=1`, `?diag=1` (with `?report=<port>` it posts black frame reports to a local receiver on that port), `?nopost=1`, `?nooverlay=1`, `?q=0..5` (render quality), `?noadapt`. `window.__ctx` exposes the game context, and `__ctx.game.advance(seconds)` steps the simulation deterministically.
+URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?style=a|b|c|d` (music style, also `?title=`), `?dvar=melodic|pressure|deep|hypno` (balance of the Techno style, default deep), `?tune=1` (live tuning panel, also opened by FEEL TUNING in the pause menu, see [docs/TUNING.md](docs/TUNING.md)), `?telemetry=1`, `?diag=1` (with `?report=<port>` it posts black frame reports to a local receiver on that port), `?showcase=1` (a self-playing demo, with `?hud=0`, `?loop=1` and `?bars=0`, see [docs/SHOWCASE.md](docs/SHOWCASE.md)), `?nopost=1`, `?nooverlay=1`, `?q=0..5` (render quality), `?noadapt`. `window.__ctx` exposes the game context, and `__ctx.game.advance(seconds)` steps the simulation deterministically.
 
     node tools/shot.mjs <url> <out.png> [waitMs]      # screenshot plus console error check
     node tools/bossbot.mjs <port> <outDir> [0,1,2]    # aimbot through each boss to level complete
@@ -103,6 +114,8 @@ URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|norm
     node tools/blackframes.mjs <port> [seconds]       # reads back every frame, flags black frames and non-finite values (--switch sweeps tiers)
     node tools/captest.mjs <port> [seconds]           # simulated 30 fps display: checks the adaptive quality and the tier order
     node tools/whiteout.mjs <port> [seconds]          # luminance runs, catches screen wide white-outs in boss fights
+    node tools/gifs.mjs <port> docs                   # render the README GIFs from the showcase route on the real GPU (needs ffmpeg)
+    node tools/sfxanalyze.mjs file <wav>              # measures a sound: envelope, spectrum, pitch fall, loudness (also render and burst modes)
     node tools/release-check.mjs                      # fresh build, page loads, hostile URLs, docs and repo hygiene (run before a release)
 
 The tools launch Google Chrome from the macOS default path, or from the `CHROME_PATH` environment variable if it is set (for example `CHROME_PATH=/usr/bin/google-chrome node tools/flow.mjs 5173 out`), and expect a running dev server. Headless Chrome uses a software renderer and runs at a few frames per second, so the tests step simulated time instead of waiting.

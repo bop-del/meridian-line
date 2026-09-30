@@ -5,13 +5,20 @@
 // audio.setMusicStyle(id) (persists, applies live, emits 'audio:style' {id}). Old aliases: titleVariants(),
 // getTitleVariant(), setTitleVariant(id).
 // Unlock: audio.unlocked (bool), audio.unlock() (call from a user gesture), event 'audio:unlocked' fires once.
-// Debug: audio.debug() -> {style, track, playing, intensity, loop, ...}.
+// Debug: audio.debug() -> {style, track, playing, intensity, loop, ...}, audio.stats() -> {duck, spatial, voices, engineNodes, ...}.
+// Audio depth: mix.js (buses, master chain, music ducking), spatial.js (pooled PannerNode slots for sfx with a `position`
+// option), engine.js (the continuous engine voice), voice.js (pilot voice barks and data blips tied to comm lines). Values live in
+// the feel group `audio` (src/feel/audio.js). audio.duck(reason, opts) and audio.mix are available to other modules.
 // Sounds triggered by game events are deduped against direct audio.sfx() calls (same name or same
 // group within ~60ms and rate limited per name), so callers may use either or both.
 import { SFX, SFX_META } from './sfx.js';
 import { MusicEngine } from './music.js';
 import { selectedStyle, saveStyle, styleList } from './styles/registry.js';
-import { getNoise } from './synth.js';
+import { feel } from '../core/feel.js';
+import { Mix } from './mix.js';
+import { Spatial } from './spatial.js';
+import { Engine } from './engine.js';
+import { Voice } from './voice.js';
 
 const MAX_VOICES = 30;
 const DEFAULT_META = { gap: 0.04, max: 4, prio: 2 };
@@ -78,6 +85,8 @@ export const audio = {
 
   reset() {
     this.last = {}; this.lastAny = {}; this.cellStreak.n = 0; this.lockStreak.n = 0;
+    this.mix?.ducks.clear();
+    if (this.mix) this.mix.tick();
   },
 
   // ==== context and graph
@@ -93,34 +102,28 @@ export const audio = {
     this.buildGraph(ac);
     this.applyVolumes(true);
     this.music_ = new MusicEngine(ac, this.musicLP, { styleId: this.getMusicStyle() });
-    this.startEngine();
+    this.eng = new Engine(ac, this.mix.engine);
+    this.voice = new Voice(ac, this.mix.voice);
     ac.addEventListener?.('statechange', () => { if (ac.state === 'running') this.markUnlocked(); });
     return true;
   },
 
   buildGraph(ac) {
-    this.sfxIn = ac.createGain();
-    this.musicIn = ac.createGain();
+    const mix = (this.mix = new Mix(ac, { vol: this.vol }));
+    this.sfxIn = mix.sfx; this.musicIn = mix.music;
+    this.comp = mix.comp; this.limiter = mix.limiter; this.master = mix.master;
     this.musicLP = ac.createBiquadFilter();
     this.musicLP.type = 'lowpass'; this.musicLP.frequency.value = 20000; this.musicLP.Q.value = 0.5;
-    this.musicLP.connect(this.musicIn);
-    this.mix = ac.createGain();
-    this.comp = ac.createDynamicsCompressor();
-    this.comp.threshold.value = -16; this.comp.knee.value = 14; this.comp.ratio.value = 4; this.comp.attack.value = 0.004; this.comp.release.value = 0.2;
-    this.limiter = ac.createDynamicsCompressor();
-    this.limiter.threshold.value = -3; this.limiter.knee.value = 0; this.limiter.ratio.value = 20; this.limiter.attack.value = 0.001; this.limiter.release.value = 0.08;
-    this.master = ac.createGain();
-    this.sfxIn.connect(this.mix); this.musicIn.connect(this.mix);
-    this.mix.connect(this.comp); this.comp.connect(this.limiter); this.limiter.connect(this.master); this.master.connect(ac.destination);
+    this.musicLP.connect(mix.music);
+    this.spat = new Spatial(ac, mix.sfx);
     this.duck = 1;
   },
 
   applyVolumes(immediate) {
-    if (!this.ac) return;
-    const t = this.ac.currentTime, k = immediate ? 0.001 : 0.04;
-    this.master.gain.setTargetAtTime(this.vol.master, t, k);
-    this.sfxIn.gain.setTargetAtTime(this.vol.sfx, t, k);
-    this.musicIn.gain.setTargetAtTime(this.vol.music * 0.85 * this.duck, t, k);
+    if (!this.ac || !this.mix) return;
+    this.mix.vol.master = this.vol.master; this.mix.vol.music = this.vol.music; this.mix.vol.sfx = this.vol.sfx;
+    this.mix.pause = this.duck;
+    this.mix.applyLevels(immediate);
   },
 
   /** Call from a user gesture (the window listeners do it on the first key or click). Resolves to audio.unlocked. */
@@ -159,42 +162,35 @@ export const audio = {
     this.last[name] = now;
     this.lastAny[meta.group || name] = now;
 
-    // spatialisation relative to the camera
-    let gain = 1, pan = 0;
-    if (opts.position) ({ gain, pan } = this.spatial(opts.position));
-    gain *= meta.gain ?? 1;
+    // positioned sounds take a pooled panner slot (spatial.js); everything else goes straight to the sfx bus
     const vg = ac.createGain();
-    vg.gain.value = gain;
-    let tail = vg;
-    let panner = null;
-    if (ac.createStereoPanner) {
-      panner = ac.createStereoPanner(); panner.pan.value = pan;
-      vg.connect(panner); tail = panner;
-    }
-    tail.connect(this.sfxIn);
+    vg.gain.value = meta.gain ?? 1;
+    let slot = null, panner = null;
+    if (opts.position && opts.position.x !== undefined && this.spat) {
+      slot = this.spat.acquire(this.ctx?.camera, opts.position);
+      if (slot) vg.connect(slot.input);
+      else {
+        const fb = this.spat.fallback(this.ctx?.camera, opts.position, this._fb || (this._fb = { gain: 1, pan: 0 }));
+        vg.gain.value *= fb.gain;
+        if (ac.createStereoPanner) { panner = ac.createStereoPanner(); panner.pan.value = fb.pan; vg.connect(panner); panner.connect(this.sfxIn); } else vg.connect(this.sfxIn);
+      }
+    } else vg.connect(this.sfxIn);
     const env = { ac, out: vg, t: ac.currentTime + 0.005, v: opts.volume ?? 1, p: opts.pitch ?? 1, r: Math.random };
     const dur = def(env);
     this.active[name] = (this.active[name] || 0) + 1;
     this.activeTotal++;
     setTimeout(() => {
       this.active[name] -= 1; this.activeTotal -= 1;
+      if (slot) this.spat.release(slot);
       try { vg.disconnect(); panner?.disconnect(); } catch (e) { /* ignore */ }
     }, (dur + 0.3) * 1000);
     return dur;
   },
 
+  /** Level and pan of a world position relative to the camera (kept for callers that want the numbers). */
   spatial(pos) {
-    const cam = this.ctx?.camera;
-    if (!cam || pos.x === undefined) return { gain: 1, pan: 0 };
-    const e = cam.matrixWorld.elements;
-    const dx = pos.x - e[12], dy = pos.y - e[13], dz = pos.z - e[14];
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    const x = dx * e[0] + dy * e[1] + dz * e[2];
-    const fwd = -(dx * e[8] + dy * e[9] + dz * e[10]);
-    const pan = clamp(x / Math.max(8, dist * 0.7), -1, 1) * 0.85;
-    let gain = Math.max(0.12, 1 / (1 + dist / 70));
-    if (fwd < 0) gain *= 0.7;
-    return { gain, pan: Number.isFinite(pan) ? pan : 0 };
+    if (!this.spat) return { gain: 1, pan: 0 };
+    return this.spat.fallback(this.ctx?.camera, pos, { gain: 1, pan: 0 });
   },
 
   music(name) {
@@ -255,48 +251,35 @@ export const audio = {
 
   setIntensity(x) { this.intensityOverride = x == null ? null : clamp(x, 0, 1); },
 
-  // ==== engine loop ambience
-  startEngine() {
-    const ac = this.ac;
-    const out = (this.engGain = ac.createGain());
-    out.gain.value = 0;
-    out.connect(this.sfxIn);
-    this.engOsc = ac.createOscillator(); this.engOsc.type = 'sawtooth'; this.engOsc.frequency.value = 60;
-    this.engSub = ac.createOscillator(); this.engSub.type = 'sine'; this.engSub.frequency.value = 30;
-    this.engLP = ac.createBiquadFilter(); this.engLP.type = 'lowpass'; this.engLP.frequency.value = 260; this.engLP.Q.value = 2;
-    const oscGain = ac.createGain(); oscGain.gain.value = 0.035;
-    const subGain = ac.createGain(); subGain.gain.value = 0.04;
-    this.engOsc.connect(this.engLP); this.engLP.connect(oscGain); oscGain.connect(out);
-    this.engSub.connect(subGain); subGain.connect(out);
-    const src = ac.createBufferSource(); src.buffer = getNoise(ac).brown; src.loop = true;
-    this.engBP = ac.createBiquadFilter(); this.engBP.type = 'bandpass'; this.engBP.frequency.value = 700; this.engBP.Q.value = 0.7;
-    this.engNoise = ac.createGain(); this.engNoise.gain.value = 0.02;
-    src.connect(this.engBP); this.engBP.connect(this.engNoise); this.engNoise.connect(out);
-    this.engOsc.start(); this.engSub.start(); src.start();
-  },
-
-  updateEngine(ctx) {
-    if (!this.ac || !this.engGain) return;
-    const t = this.ac.currentTime;
-    const playing = ctx.state.phase === 'playing' && this.ac.state === 'running';
-    let speed = this.engineIn.speed, boost = this.engineIn.boost;
-    if (performance.now() / 1000 - this.engineIn.at > 0.5) {
+  // ==== engine voice (engine.js)
+  /** State for the engine voice from the game: signed speed (-1 brake .. 0 cruise .. 1 boost), boost and brake amounts, steering, shield. */
+  engineState(ctx) {
+    const pl = ctx.player, st = ctx.state;
+    const playing = st.phase === 'playing' && this.ac.state === 'running' && pl?.alive !== false;
+    let speed = ctx.speedfx?.signed;
+    let boost = pl?.boostAmount ?? 0, brake = pl?.brakeAmount ?? 0;
+    if (performance.now() / 1000 - this.engineIn.at < 0.5) {
+      // setEngine(speed01, boosting) override: 0.34 is the cruise point of the 0..1 speed range
+      const s01 = this.engineIn.speed;
+      speed = clamp((s01 - 0.34) / (s01 > 0.34 ? 0.66 : 0.34), -1, 1);
+      boost = this.engineIn.boost ? 1 : Math.max(0, speed); brake = Math.max(0, -speed);
+    } else if (!Number.isFinite(speed)) {
       const c = ctx.config?.rail;
-      if (ctx.rail && c) speed = clamp((ctx.rail.speed - c.brakeSpeed) / (c.boostSpeed - c.brakeSpeed), 0, 1);
-      boost = !!ctx.player?.isBoosting;
+      speed = ctx.rail && c ? clamp((ctx.rail.speed - c.baseSpeed) / (ctx.rail.speed >= c.baseSpeed ? c.boostSpeed - c.baseSpeed : c.baseSpeed - c.brakeSpeed), -1, 1) : 0;
     }
-    this.engGain.gain.setTargetAtTime(playing ? 0.6 : 0, t, playing ? 0.4 : 0.15);
-    this.engOsc.frequency.setTargetAtTime(48 + speed * 34 + (boost ? 26 : 0), t, 0.15);
-    this.engSub.frequency.setTargetAtTime(24 + speed * 17 + (boost ? 13 : 0), t, 0.15);
-    this.engLP.frequency.setTargetAtTime(220 + speed * 260 + (boost ? 500 : 0), t, 0.2);
-    this.engBP.frequency.setTargetAtTime(420 + speed * 700 + (boost ? 1500 : 0), t, 0.2);
-    this.engNoise.gain.setTargetAtTime(0.02 + speed * 0.03 + (boost ? 0.07 : 0), t, 0.2);
+    const steer = clamp((pl?.localVelocity?.x ?? 0) / Math.max(1, ctx.config?.player?.speedX ?? 32), -1, 1);
+    const health = st.maxHealth ? clamp(st.health / st.maxHealth, 0, 1) : 1;
+    return { speed, boost, brake, steer, health, playing };
   },
 
   // ==== per frame
   update(dt, ctx) {
     if (!this.ac) return;
-    this.updateEngine(ctx);
+    this.eng.update(dt, this.engineState(ctx));
+    this.mix.applyLevels(false);
+    this.mix.tick();
+    this.spat.update(ctx.camera);
+    this.watchComm(ctx);
     const st = ctx.state;
     // music intensity follows level progress, boss fights are full intensity
     let target = this.intensityOverride;
@@ -308,6 +291,36 @@ export const audio = {
       if (st.phase === 'paused') this.pauseMusic(true);
       else if (prev === 'paused') this.pauseMusic(false);
     }
+  },
+
+  // ==== ducking and voices
+  /** Dip the music (and a share of the engine) for a while. See Mix.duck. reason is any string; the deepest active dip wins. */
+  duckMusic(reason, o) { this.mix?.duck(reason, o); },
+
+  /** A new comm line started: play its voice bark or data blips and dip the music under it. */
+  watchComm(ctx) {
+    const cur = ctx.ui?.commBox?.cur || null;
+    if (cur === this._commCur) return;
+    this._commCur = cur;
+    if (!cur || !this.voice || this.ac.state !== 'running') return;
+    const P = feel.p.audio;
+    const typed = Math.min(2.6, Math.max(0.35, String(cur.text || '').length / (cur.portrait ? 44 : 62)));
+    const len = this.voice.speak(cur.sp, cur.text, { duration: typed });
+    if (len > 0) this.mix.duck('voice', { depth: P.duckVoiceDepth, hold: Math.max(len, typed) + 0.15, attack: P.duckVoiceAttack, release: P.duckVoiceRelease });
+  },
+
+  /** Big blast: dip the music briefly so the boom is heard. */
+  duckBoom() {
+    const P = feel.p.audio;
+    this.mix?.duck('boom', { depth: P.duckBoomDepth, hold: P.duckBoomHold, attack: 0.03, release: P.duckBoomRelease });
+  },
+
+  /** Counters and node budgets for tests and the debug overlay. */
+  stats() {
+    return {
+      state: this.ac?.state ?? 'none', duck: this.mix?.duckDepth ?? 1, ducks: this.mix ? [...this.mix.ducks.keys()] : [],
+      spatial: this.spat?.stats ?? null, active: this.activeTotal, engineNodes: this.eng?.nodeCount ?? 0, barks: this.voice?.barks ?? 0,
+    };
   },
 
   // ==== event driven sounds
@@ -334,14 +347,15 @@ export const audio = {
       this.auto('lockon', { pitch: Math.pow(2, (s.n * 2) / 12) });
     });
     on('player:damage', () => this.auto('damage'));
-    on('player:dead', () => this.auto('bigExplosion'));
-    on('player:bomb', () => this.auto('bomb'));
+    on('player:dead', () => { this.auto('bigExplosion'); this.duckBoom(); });
+    on('player:bomb', () => { this.auto('bomb'); this.duckBoom(); });
     on('player:boost', (p) => { if (p?.on !== false) this.auto('boost'); });
     on('player:roll', () => this.auto('roll'));
     on('enemy:killed', (p) => {
       const e = p?.enemy;
       const big = e?.isBoss || (p?.points ?? 0) >= 1000 || (e?.radius ?? 0) >= 3.5;
       this.auto(big ? 'bigExplosion' : 'explosion', { position: pos(p), pitch: big ? 1 : 0.85 + Math.random() * 0.3 });
+      if (big) this.duckBoom();
     });
     on('enemy:hit', (p) => {
       const e = p?.enemy;
@@ -366,6 +380,8 @@ export const audio = {
     on('boss:phase', () => this.auto('bossHit', { volume: 1.2, pitch: 0.7 }));
     on('boss:defeated', () => {
       this.auto('bigExplosion');
+      const P = feel.p.audio;
+      this.mix?.duck('bossDeath', { depth: P.duckBossDepth, hold: P.duckBossHold, attack: 0.05, release: 1.6 });
       setTimeout(() => { if (this.ctx.state.phase !== 'gameover' && this.ctx.state.phase !== 'title') this.music('victory'); }, 1400);
     });
     on('level:start', (p) => {
@@ -377,5 +393,19 @@ export const audio = {
     on('game:over', () => this.music('gameover'));
     on('game:victory', () => this.music('victory'));
     on('ally:down', () => this.auto('comm', { pitch: 0.7 }));
+    // camera takeovers (boss entrance and finisher lock the input): duck the music and mark both ends with a whoosh
+    on('cinema:start', () => {
+      const def = this.ctx.cinema?.def;
+      if (!def || !def.lockInput) return;
+      const P = feel.p.audio;
+      this.mix?.duckStart('cinema', { depth: P.duckCinemaDepth, attack: 0.25, release: P.duckCinemaRelease, max: 6 });
+      if (P.whooshCinema > 0 && performance.now() / 1000 - (this.last.whoosh ?? -9) > 1) this.auto('whoosh', { volume: P.whooshCinema });
+    });
+    on('cinema:end', () => {
+      if (!this.mix?.ducks.has('cinema')) return;
+      const P = feel.p.audio;
+      this.mix.duckEnd('cinema');
+      if (P.whooshCinema > 0) this.auto('whoosh', { volume: P.whooshCinema * 0.6, pitch: 0.8 });
+    });
   },
 };

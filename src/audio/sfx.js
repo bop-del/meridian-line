@@ -1,4 +1,4 @@
-// Procedural sound effects. Each definition receives an env {ac, out, t, v, p, r} and returns its duration in seconds.
+// Procedural sound effects (positioned ones are routed through the pooled panners of spatial.js by audio.sfx). Each definition receives an env {ac, out, t, v, p, r} and returns its duration in seconds.
 //   ac: AudioContext, out: node to connect to, t: start time, v: volume multiplier, p: pitch multiplier, r: random() function
 import { tone, noise } from './synth.js';
 import { WEAPON_SFX, WEAPON_META } from './sfx2/weapons.js';
@@ -186,7 +186,7 @@ const LEGACY_META = {
   boost: { gap: 0.3, max: 1, prio: 3 },
   brake: { gap: 0.3, max: 1, prio: 3 },
   roll: { gap: 0.15, max: 2, prio: 2 },
-  comm: { gap: 0.1, max: 2, prio: 4 },
+  comm: { gap: 0.1, max: 2, prio: 4, gain: 0.7 },   // the voice barks (voice.js) carry the radio key click now, so the blip sits behind them
   uiMove: { gap: 0.03, max: 3, prio: 4 },
   uiSelect: { gap: 0.06, max: 2, prio: 4 },
   warning: { gap: 0.4, max: 1, prio: 5 },

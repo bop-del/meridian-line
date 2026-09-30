@@ -1,4 +1,4 @@
-// Boss 1 (Thalassa Coast): TIDEBREAKER, the flagship siege barge of the Dominion landing fleet, riding on twin pontoon
+// Boss of Thalassa Coast: TIDEBREAKER, the flagship siege barge of the Dominion landing fleet, riding on twin pontoon
 // skids. It starts the fight tied down to three mooring towers.
 //  P1 MOORED:   three heavy mooring cables hold the hull. Each cable ends in a clamp on the hull (a critical part).
 //               Cut all three. Deck turrets and missile pods harass while the hull strains.
@@ -61,6 +61,7 @@ export class Tidebreaker extends Boss {
     this.body.position.z = 8; // visual root sits in front of the (rear) hull collider so front parts are hit first
     this.radius = 12; this.bounds = new THREE.Vector3(18, 8, 26);
     this.deathColors = [0xffb040, 0xff7a20]; this.debrisColor = 0x3a6068;
+    this.deathCfg = { flash: '#ffdcaa', sink: 3.6, sinkAfter: 6, tumble: 1.3, afterCd: 0.1, afterScale: 2.1 };
     const b = this.body;
     // barge hull
     mesh(merged('tbHull', [
@@ -207,10 +208,11 @@ export class Tidebreaker extends Boss {
   }
 
   intro() {
-    this.after(0.4, () => this.comm('CONTROL', 'Landing fleet flagship, TIDEBREAKER, on the reef line. Engage.'));
-    this.after(3.2, () => this.comm('LUMEN', 'Large contact, barge class. Three moorings.', 3.4));
-    this.after(7.4, () => this.comm('FERRO', 'A great deal of rope for a ship that means to leave.', 3.4));
-    this.after(4.9, () => this.ctx.ui?.hint?.('Shoot the amber cable clamps to cut the moorings', 5));
+    const D = this.cinDelay ?? 0;   // the comm lines wait for the entrance takeover to end
+    this.after(D + 0.3, () => this.comm('CONTROL', 'Landing fleet flagship, TIDEBREAKER, on the reef line. Engage.'));
+    this.after(D + 3.5, () => this.comm('LUMEN', 'Large contact, barge class. Three moorings.', 3.4));
+    this.after(D + 7.4, () => this.comm('FERRO', 'A great deal of rope for a ship that means to leave.', 3.4));
+    this.after(D + 1.6, () => this.ctx.ui?.hint?.('Shoot the amber cable clamps to cut the moorings', 5));
     this.cutCount = 0; this.calm = 0; this.cannonState = 'idle'; this.cannonT = 3; this.cannonShots = 0;
     this.hatchOpen = 0; this.coreUp = 0; this.missiles = 0; this.lurch = 0; this.lurchDir = 0;
     this.shells = new Set(); this.hinted = false; this.reflectNoted = false;
@@ -260,7 +262,52 @@ export class Tidebreaker extends Boss {
     for (const s of this.shells) s.alive = false;
     this.shells.clear(); this.aimLine.visible = false; this.setGlow(this.cannonGlow, 0);
     for (const v of this.vents) this.setGlow(v.halo, 0);
-    this.after(1.2, () => this.comm('CONTROL', 'Flagship down. Landing fleet has lost its command barge. Logging.', 3.4));
+    this.after(0.5, () => this.comm('CONTROL', 'Flagship down. Landing fleet has lost its command barge. Logging.', 3.4));
+  }
+
+  focus(out) { return this.body.localToWorld(out.set(0, 3, 2)); }
+
+  // ---- defeat: blasts walk from the stern to the bow, the siege cannon cooks off and is thrown clear, the reactor goes up in a plume ----
+  onDeathStart() { this.cannonV = null; this.cookAt = this.dp.burstAt - 0.55; }
+
+  deathPoint(out, k = 0.5) {
+    if (k >= 1 && this.ds.burst) {   // aftermath: a plume of fire rises from the wreck
+      out.set((Math.random() - 0.5) * 10, 4 + Math.random() * 26, (Math.random() - 0.5) * 16);
+      return this.body.localToWorld(out);
+    }
+    out.set((Math.random() - 0.5) * 20, 1 + Math.random() * 7, -26 + 48 * k + (Math.random() - 0.5) * 8);
+    return this.body.localToWorld(out);
+  }
+
+  deathTick(dt, t, S, ctx) {
+    const D = this.dp;
+    if (!S.burst) {
+      const k = Math.min(1, t / D.burstAt);
+      this.setGlow(this.cannonGlow, Math.min(1, k * 1.4), 24); this.cannonRing.rotation.z += dt * 3 * k;
+      if (Math.random() < dt * (6 + 16 * k)) { this.deathPoint(_o, k); ctx.fx?.smoke?.(_o, 1.2); ctx.fx?.sparks?.(_o, null, 4); }
+      // cook off: the cannon bursts and is thrown forward and up
+      if (!this.cannonV && t >= this.cookAt) {
+        this.cannonV = new THREE.Vector3((Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 6), 12, -4);
+        this.cannon.getWorldPosition(_o);
+        ctx.fx?.explosion?.(_o, { scale: 7, color: 0xffb040, debrisColor: 0x3a6068 }); ctx.fx?.debris?.(_o, 14, 0x3a6068); ctx.fx?.shake?.(0.9, 0.4);
+        ctx.audio?.sfx?.('bigExplosion', { position: _o, volume: 0.9 });
+      }
+    }
+    if (this.cannonV) {
+      const cv = this.cannonV; this.cannon.position.addScaledVector(cv, dt / SCALE); cv.y -= 14 * dt;
+      this.cannon.rotation.x -= dt * 1.6; this.cannon.rotation.z += dt * 2.2;
+      if (S.burst) { const sc = Math.max(0, 1 - ((t - D.burstAt) / 1.4) ** 2); this.cannon.scale.setScalar(sc); }
+      if (Math.random() < dt * 10) { this.cannon.getWorldPosition(_o); ctx.fx?.smoke?.(_o, 1.5); }
+    }
+  }
+
+  hideAtBurst() { for (const c of this.body.children) if (c !== this.cannon) c.visible = false; }
+
+  onBurst(ctx, c) {
+    // the fireball climbs out of the water: a spray ring at the surface and a second, taller blast
+    const wy = (ctx.world?.info?.floorY ?? -26) + 1;
+    _o.set(c.x, wy, c.z); ctx.fx?.explosion?.(_o, { scale: 6, color: 0xcfeaff, debrisColor: 0xcfeaff }); ctx.fx?.shockwave?.(_o, { radius: 40, color: 0xcfeaff });
+    _o.set(c.x, c.y + 14, c.z); ctx.fx?.explosion?.(_o, { scale: 6, big: true, color: 0xff8a2a, debrisColor: 0x3a6068 });
   }
 
   // fight
@@ -304,7 +351,7 @@ export class Tidebreaker extends Boss {
           ctx.audio?.sfx?.('whoosh', { position: _o, pitch: 1.2 }); ctx.fx?.smoke?.(_o);
         }
       }
-      if (C.t >= C.dur) { this.cycle = { state: 'opening', t: 0, dur: 0.7, ventStage: 0 }; ctx.audio?.sfx?.('laserCharge', { position: this.core.position }); }
+      if (C.t >= C.dur) { this.cycle = { state: 'opening', t: 0, dur: 0.7, ventStage: 0 }; ctx.audio?.sfx?.('bossCharge', { position: this.core.position }); }
     } else if (C.state === 'opening') {
       this.ventGlow = 0; this.core.exposed = false;
       if (C.t >= C.dur) { this.cycle = { state: 'open', t: 0, dur: 3.4, ventStage: 0 }; }
@@ -378,7 +425,7 @@ export class Tidebreaker extends Boss {
     if (this.cannonState === 'idle') {
       if (this.cannonT <= 0) {
         this.cannonState = 'charge'; this.cannonT = this.phase === 3 ? 1.8 : 2.3; this.cannonDur = this.cannonT; this.aimLocked = false;
-        ctx.audio?.sfx?.('laserCharge', { position: this.position }); ctx.ui?.warning?.('SIEGE CANNON');
+        ctx.audio?.sfx?.('bossCharge', { position: this.position }); ctx.ui?.warning?.('SIEGE CANNON');
         if (!this.hinted && this.phase >= 2) { this.hinted = true; ctx.ui?.hint?.('FLIP: Q or E sends the siege shell back into the hull', 5); }
       }
     } else if (this.cannonState === 'charge') {
@@ -410,7 +457,7 @@ export class Tidebreaker extends Boss {
     const shell = this.shoot(_o, this.aimDir, { speed: 46, radius: 3.4, damage: 26, color: 0xffa030, cap: 70, size: 1.15 });
     if (shell) { for (const s of this.shells) if (!s.alive) this.shells.delete(s); this.shells.add(shell); }
     ctx.fx?.explosion?.(_o, { scale: 3, color: 0xffb060 });
-    ctx.fx?.shake?.(1.0, 0.4); ctx.audio?.sfx?.('chargedShot', { position: _o });
+    ctx.fx?.shake?.(1.0, 0.4); ctx.audio?.sfx?.('bossCannon', { position: _o });
     this.setGlow(this.cannonGlow, 0); this.aimLine.visible = false;
     this.cannonState = 'recover'; this.cannonT = 0.7; this.cannonShots++; this.recoil = 1;
   }

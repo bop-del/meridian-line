@@ -12,7 +12,8 @@ export const diag = {
     const r = ctx.render, gl = ctx.renderer.getContext(), px = new Uint8Array(4), self = this;
     // ?report=<port>: every black frame and a 5 s summary are POSTed to http://localhost:<port>/ (a receiver run by the developer)
     const rq = new URLSearchParams(location.search).get('report');
-    const rp = /^\d{2,5}$/.test(rq || '') ? rq : null;   // a port number only, never a host
+    const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+    const rp = local && /^\d{2,5}$/.test(rq || '') ? rq : null;   // a port number only, never a host, and only from a page served locally
     this.send = rp ? (obj) => { try { fetch(`http://localhost:${rp}/`, { method: 'POST', mode: 'no-cors', body: JSON.stringify(obj) }); } catch (e) { /* ignore */ } } : () => {};
     this.badge = document.createElement('div');
     this.badge.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9999;padding:4px 8px;font:11px/1.4 ui-monospace,monospace;color:#dff;background:rgba(0,0,0,.75);border:1px solid #46e6d2;pointer-events:none;white-space:pre';

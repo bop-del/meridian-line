@@ -15,6 +15,7 @@ import { cameraRig } from './cameraRig.js';
 import { feel } from './feel.js';
 import { impact } from '../fx/impact.js';
 import { speedfx } from '../fx/speedfx.js';
+import { cinema } from '../fx/cinema.js';
 import { player } from '../entities/player.js';
 import { projectiles } from '../entities/projectiles.js';
 import { render } from '../render/renderer.js';
@@ -32,7 +33,7 @@ const ESCORTS = ['vex', 'ferro', 'pip'];
 export function startGame(mount, uiRoot) {
   const params = new URLSearchParams(location.search);
   const ctx = {
-    THREE, config, feel, events, state, input, rail, collision, cameraRig, impact, speedfx, player, projectiles, render, fx, audio, ui, world, enemies, allies,
+    THREE, config, feel, events, state, input, rail, collision, cameraRig, impact, speedfx, cinema, player, projectiles, render, fx, audio, ui, world, enemies, allies,
     clock: new THREE.Clock(),
     groups: { playerShots: [], enemyShots: [], enemies: [], obstacles: [], pickups: [], allies: [] },
     timeScale: 1,
@@ -43,10 +44,10 @@ export function startGame(mount, uiRoot) {
   render.init(ctx, mount);
 
   const gameplay = [input, rail, world, enemies, allies, player, projectiles, collision];
-  const always = [impact, speedfx, cameraRig, fx, ui, audio];
+  const always = [impact, speedfx, cinema, cameraRig, fx, ui, audio];
   const all = [...gameplay, ...always];
   const names = new Map([[input, 'input'], [rail, 'rail'], [world, 'world'], [enemies, 'enemies'], [allies, 'allies'], [player, 'player'],
-    [projectiles, 'projectiles'], [collision, 'collision'], [impact, 'impact'], [speedfx, 'speedfx'], [cameraRig, 'cameraRig'], [fx, 'fx'], [ui, 'ui'], [audio, 'audio'], [render, 'render']]);
+    [projectiles, 'projectiles'], [collision, 'collision'], [impact, 'impact'], [speedfx, 'speedfx'], [cinema, 'cinema'], [cameraRig, 'cameraRig'], [fx, 'fx'], [ui, 'ui'], [audio, 'audio'], [render, 'render']]);
 
   // A throwing module must not take the whole loop down: log a few times per module and carry on.
   const errCount = new Map();
@@ -80,6 +81,7 @@ export function startGame(mount, uiRoot) {
     st.textContent = '.ui-scan{display:none!important} *{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;mix-blend-mode:normal!important}';
     document.head.appendChild(st);
   }
+  if (params.get('showcase') === '1') import('../showcase/showcase.js').then(({ showcase }) => { dev.push(showcase); ctx.showcase = showcase; safe(showcase, 'init', ctx); });
   if (params.get('diag') === '1') import('../dev/diag.js').then(({ diag }) => { dev.push(diag); ctx.diag = diag; safe(diag, 'init', ctx); });
   if (params.get('tune') === '1') loadDev(true);
   else if (params.get('telemetry') === '1') loadDev(false);
@@ -122,7 +124,7 @@ export function startGame(mount, uiRoot) {
     state.health = state.maxHealth; state.boost = 1; state.boostCooldown = 0;
     state.bombs = Math.max(state.bombs, config.player.bombs);
     state.levelStats = null;
-    for (const m of [rail, world, enemies, allies, projectiles, collision, player, impact, speedfx, cameraRig, fx, ui, audio]) safe(m, 'reset', ctx);
+    for (const m of [rail, world, enemies, allies, projectiles, collision, player, impact, speedfx, cinema, cameraRig, fx, ui, audio]) safe(m, 'reset', ctx);
     safe(world, 'loadLevel', index);
     if (!allies.wingmen || allies.wingmen.length === 0) safe(allies, 'spawnWingmen', ESCORTS);
     safe(allies, 'setEnabled', state.phase === 'playing');
@@ -268,6 +270,7 @@ export function startGame(mount, uiRoot) {
       safe(projectiles, 'lateUpdate', ctx);
       safe(impact, 'update', dt, ctx);
       safe(speedfx, 'update', dt, ctx);
+      safe(cinema, 'update', dt, ctx);
       safe(cameraRig, 'update', dt, ctx);
       safe(fx, 'update', dt, ctx);
     } else if (phase === 'title') {
@@ -276,6 +279,7 @@ export function startGame(mount, uiRoot) {
       safe(player, 'update', dt, ctx);
       safe(impact, 'update', dt, ctx);
       safe(speedfx, 'update', dt, ctx);
+      safe(cinema, 'update', dt, ctx);
       safe(cameraRig, 'update', dt, ctx);
       safe(fx, 'update', dt, ctx);
     } else if (phase === 'paused') {
@@ -284,6 +288,7 @@ export function startGame(mount, uiRoot) {
       // gameover, levelcomplete, victory: frozen world, orbiting camera, live particles
       safe(impact, 'update', raw, ctx);
       safe(speedfx, 'update', raw, ctx);
+      safe(cinema, 'update', raw, ctx);
       safe(cameraRig, 'update', raw, ctx);
       safe(fx, 'update', raw, ctx);
     }

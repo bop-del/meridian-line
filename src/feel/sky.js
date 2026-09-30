@@ -1,4 +1,4 @@
-// Feel parameters for the "sky" group (registered into src/core/feel.js). Owner: the water and sky agent.
+// Feel parameters for the "sky" group (registered into src/core/feel.js). Sky and water.
 // Every value is READ from feel.p.sky.<key> each frame by the code that uses it (Sky.applyFeel and the ocean's applyFeel, called from the
 // level's update), so the ?tune=1 panel takes effect instantly. Per level values carry a level prefix (thalassa_, cinder_, foundry_).
 //

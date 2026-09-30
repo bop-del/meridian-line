@@ -15,6 +15,8 @@ const GROUP_INFO = {
   look: 'Post-processing and grade: bloom, light shafts, lens flare, depth of field, height fog, colour grade per level',
   sky: 'Sky, clouds and water: cloud layers, scattering, sea colour, reflections, foam',
   atmosphere: 'Level atmosphere: fog, particles, ambient dressing, light rigs, boss lighting',
+  cinema: 'Camera choreography: level intro flythroughs, signature moments, boss entrance and finisher takeovers',
+  audio: 'Mix and sound: ducking, spatial sound, engine tone, pilot voices',
 };
 
 const CSS = `

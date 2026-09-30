@@ -18,7 +18,12 @@
     a { color: #35d0ff; }
     .row { display: flex; align-items: center; gap: 10px; padding: 12px 16px; margin: 8px 0; max-width: 900px; background: #0d1526; border: 1px solid #1c2b48; border-radius: 8px; transition: border-color .15s, box-shadow .15s; }
     .row.active { border-color: #35d0ff; box-shadow: 0 0 0 1px #35d0ff33; }
-    .row .txt { flex: 1; min-width: 0; } .row b { display: block; } .row small { color: #7f93b8; display: block; }
+    .row { flex-wrap: wrap; }
+    .row .txt { flex: 1; min-width: 260px; } .row b { display: block; } .row small { color: #7f93b8; display: block; }
+    .row .btns { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: 430px; }
+    pre.num { margin: 6px 0 0; font: 12px/1.45 ui-monospace, Menlo, monospace; color: #8fe3a8; white-space: pre-wrap; }
+    pre.num:empty { display: none; }
+    textarea#notes { width: 100%; max-width: 900px; min-height: 90px; box-sizing: border-box; background: #0d1526; color: #dbe7ff; border: 1px solid #1c2b48; border-radius: 8px; padding: 10px; font: 13px/1.5 ui-monospace, Menlo, monospace; }
     .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; margin-left: 6px; background: #12203a; border: 1px solid #2b4570; color: #9fb4d8; font-weight: normal; }
     .badge.ok { border-color: #2f8f5a; color: #8fe3a8; } .badge.legacy { border-color: #8f6a2f; color: #e3c48f; }
     .live { color: #35d0ff; font-variant-numeric: tabular-nums; }
@@ -28,11 +33,14 @@
     #meter.hot i { background: #ff6a5a; }
     button.sel { border-color: #2f8f5a; color: #8fe3a8; } button.on { background: #8f2f2f; border-color: #ff6a5a; }
     input[type=range] { width: 150px; }
+    #profile table { border-collapse: collapse; font: 12px/1.5 ui-monospace, Menlo, monospace; max-width: 900px; }
+    #profile th, #profile td { padding: 3px 8px; border-bottom: 1px solid #1c2b48; text-align: right; white-space: nowrap; }
+    #profile td:first-child { text-align: left; white-space: normal; color: #9fb4d8; } #profile th { color: #7f93b8; font-weight: normal; }
   </style>
 </head>
 <body>
   <h1>SOUND LAB</h1>
-  <p class="sub">Audition every sound effect. Sounds go through the same gain, compressor and limiter as the game. "Rapid x8" repeats a sound at a realistic fire rate and obeys the same voice limits as the game (gap and max voices). "Old" plays the previous recipe for a quick comparison. Pitch variation adds a random pitch offset per shot on top of what each recipe already randomises.</p>
+  <p class="sub">Audition every sound effect. Sounds go through the same gain, compressor and limiter as the game. "Rapid x8" repeats a sound at a realistic fire rate and obeys the same voice limits as the game (gap and max voices). "Prev" plays the previous version (for the player lasers the laser round 1 recipe, for the enemy, turret and boss sounds the sound the game used at that call site before), "v1" the very first player laser, "Hold 4 s" fires continuously at the game rate and "Compare" plays v1, prev and new three shots each, and "Family" plays player L1, L2, L3, enemy, turret, allies, boss charge, cannon and beam in a row. The green numbers under a sound are measured on the shot you just heard (peak, RMS, A-weighted energy as a loudness figure, spectral centroid, band shares, fall in octaves). Pitch variation adds a random pitch offset per shot on top of what each recipe already randomises.</p>
   <div class="tools">
     <label>Volume <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" /> <span id="volval" class="live">0.80</span></label>
     <label>Pitch <input id="pitch" type="range" min="0.5" max="2" step="0.01" value="1" /> <span id="pitchval" class="live">1.00</span></label>
@@ -40,12 +48,20 @@
   </div>
   <div class="tools">
     <button id="stop">Stop all</button>
+    <button id="family" class="pri" title="Player L1, L2, L3, enemy, turret, allies, boss charge, cannon and beam in a row">Family</button>
     <label>Peak <span id="meter"><i></i></span> <span id="db" class="live">-inf dB</span></label>
     <a href="./music-lab.html">Music lab</a>
     <a href="./">Open the game</a>
   </div>
+  <h2>Laser profile (measured live)</h2>
+  <p class="sub">Measured with tools/sfxanalyze.mjs. Numbers only. "Fall" is how far the whole harmonic stack slides down in octaves, the shape that makes a laser a laser. Our rows are measured live in this page.</p>
+  <div id="profile"></div>
   <div id="list"></div>
   <p id="status"></p>
+  <h2>Listening notes</h2>
+  <p class="sub">Write what you hear per sound (too thin, too long, machine-gunny, harsh, great...). "Add settings" starts a line with the current pitch and volume. Notes stay in this browser; use Copy to take them with you.</p>
+  <textarea id="notes" placeholder="laser (level 1): ..."></textarea>
+  <div class="tools"><button id="notesAdd">Add settings line</button><button id="notesCopy">Copy notes</button></div>
   <script type="module" src="/src/audio/sfx2/lab.js"></script>
 </body>
 </html>

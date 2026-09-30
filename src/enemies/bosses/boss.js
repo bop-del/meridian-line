@@ -7,8 +7,15 @@ import * as THREE from 'three';
 import { Enemy } from '../enemy.js';
 import { Part } from '../part.js';
 import { diff } from '../aim.js';
+import { ensureBossShots } from './cinematics.js';
 
-const _p = new THREE.Vector3();
+const _p = new THREE.Vector3(), _c = new THREE.Vector3();
+const clamp = THREE.MathUtils.clamp;
+
+// Defeat sequence timing (game seconds since the last critical part died). The finisher takeover (cinematics.js, 3.2 s) starts at shotAt and
+// ends at T; the burst lands 1.55 s into it. Everything before shotAt is the cascade, played in the normal chase camera.
+// Per boss overrides go into this.deathCfg (flash colour, peak, sink speeds, ...).
+const DEATH = { T: 5.4, shotAt: 2.2, burstAt: 3.75, flash: '#ffe2b0', flashPeak: 0.55, sink: 3.5, sinkAfter: 3.5, tumble: 1 };
 
 export class Boss extends Enemy {
   static def = { hp: 1, radius: 6, points: 3000, contactDamage: 30 };
@@ -32,11 +39,25 @@ export class Boss extends Enemy {
     for (const p of this.parts) { p.exposed = false; ctx.enemies.add(p); }
     ctx.state.boss = { name: this.title, hp: this.hp, maxHp: this.maxHp, phase: 1 };
     ctx.events.emit('boss:spawn', { name: this.title, key: this.key });
-    ctx.ui?.warning?.('WARNING');
     ctx.audio?.sfx?.('alarm');
     ctx.audio?.music?.('boss');
+    // entrance takeover: the WARNING banner waits until the shot ends (showWarning), the first comm lines wait via cinDelay
+    this.cinDelay = 0; this.warnPending = false;
+    ensureBossShots(ctx);
+    if (ctx.cinema?.play(`boss.${this.key}.entrance`, { data: { boss: this } })) { this.warnPending = true; this.cinDelay = ctx.cinema.duration + 0.1; }
+    else ctx.ui?.warning?.('WARNING');
     this.intro?.(ctx);
   }
+
+  /** Called when the entrance takeover ends (or at once when there is none). */
+  showWarning() {
+    if (!this.warnPending) return;
+    this.warnPending = false;
+    if (this.alive && !this.dying) this.ctx.ui?.warning?.('WARNING');
+  }
+
+  /** World centre of the boss for the takeover cameras and the defeat effects. Subclasses point it at their core. */
+  focus(out) { return this.group.getWorldPosition(out); }
 
   /** Schedule fn after `t` seconds (only while alive). */
   after(t, fn) { this.tl.push({ t, fn }); }
@@ -100,6 +121,8 @@ export class Boss extends Enemy {
 
   beginFight(ctx) {
     this.mode = 'fight'; this.modeT = 0;
+    // the boss comes to rest: a low thump through the camera
+    ctx.fx?.shake?.(0.7, 0.7, 'boss'); ctx.audio?.sfx?.('bigExplosion', { position: this.position, volume: 0.35, pitch: 0.6 });
     this.setPhase(1, true);
   }
 
@@ -132,57 +155,113 @@ export class Boss extends Enemy {
 
   onPartDestroyed(p) { p.anchor.visible = false; this.partDestroyed?.(p); }
 
-  // death
+  // ---------------------------------------------------------------- death
+  // 1. cascade (0 to burstAt): staged explosions along the silhouette, parts blow one after the other, the boss sinks and tumbles.
+  //    The finisher takeover starts at shotAt. 2. slow motion beat just before the burst. 3. burst: a warm flash that ramps in over
+  //    three frames (never above flashPeak), core detonation, shock ring, debris, boss:defeated. 4. aftermath: fire and drifting wreck.
+  // Subclass hooks: deathPoint(out, k) blast positions along the silhouette (k 0..1 progress), deathTick(dt, t, ds, ctx) per frame visuals,
+  // onBurst(ctx, c) the boss specific burst, hideAtBurst() what disappears in the flash, deathSort(a, b) part blast order.
   startDeath(ctx = this.ctx) {
     if (this.dying) return;
     this.dying = true; this.mode = 'dying'; this.modeT = 0; this.radius = 0; this.lockable = false;
     this.tl.length = 0;
-    for (const p of this.parts) { if (p.alive) { ctx.fx?.explosion?.(p.position, { scale: p.explScale, big: p.explScale > 3 }); p.destroy(); } }
+    const q = [];
+    for (const p of this.parts) if (p.alive) { q.push(p); p.destroy(); }
+    q.sort((a, b) => this.deathSort(a, b));
     // remove the boss's hostile stuff
     for (const e of ctx.groups.enemies) if (e !== this && (e.type === 'missile' || e.type === 'plasmaOrb' || e.type === 'grunt' || e.type === 'interceptor') && e.alive && e.spawnedBy === this) e.destroy(ctx);
-    ctx.events.emit('fx:hitstop', { duration: 0.35 });
-    ctx.fx?.flash?.('#ffffff', 0.7, 0.5); ctx.fx?.shake?.(2, 1.2);
+    this.dp = { ...DEATH, ...(this.deathCfg ?? {}) };
+    this.ds = { q, cd: 0.05, n: 0, shot: false, slow: false, burst: false, ff: -1, gs: this.group.scale.x };
+    ctx.game?.hitStop?.(0.1, 0.2);
+    ctx.fx?.shake?.(1.4, 0.9, 'boss'); ctx.fx?.flash?.(this.dp.flash, 0.2, 0.3);
     ctx.audio?.sfx?.('bigExplosion', { position: this.position });
-    this.deathBoom = 0; this.deathSlow = false; this.deathFinal = false;
+    this.onDeathStart?.(ctx);
+  }
+
+  deathSort(a, b) { return a.anchor.position.z - b.anchor.position.z; }
+
+  /** Default blast position: anywhere in the boss bounds. */
+  deathPoint(out) {
+    const b = this.bounds ?? _c.set(10, 5, 15);
+    out.set((Math.random() * 2 - 1) * b.x, (Math.random() * 2 - 1) * b.y, (Math.random() * 2 - 1) * b.z);
+    return this.group.localToWorld(out.multiplyScalar(this.group.scale.x));
+  }
+
+  /** One staged blast. Default is a fireball; the Regent overrides it with cold energy. */
+  blastFx(ctx, pos, scale, color, deb) { ctx.fx?.explosion?.(pos, { scale, color, debrisColor: deb }); }
+
+  /** The final detonation at the focus. */
+  burstFx(ctx, c, gs, color) {
+    ctx.fx?.explosion?.(c, { scale: 4 * gs, big: true, color, debrisColor: this.debrisColor });
+    ctx.fx?.shockwave?.(c, { radius: 46, color });
+  }
+
+  deathBlast(ctx, k) {
+    const S = this.ds, gs = S.gs, dc = this.deathColors ?? [0xffaa33, 0xff5522];
+    let scale, color, deb = this.debrisColor ?? 0x883344;
+    const part = S.q.length && (S.n % 2 === 0 || k > 0.55) ? S.q.shift() : null;
+    if (part) { part.anchor.getWorldPosition(_p); scale = (part.explScale ?? 3) * 0.95; color = part.explColor; deb = part.debrisColor ?? deb; part.anchor.visible = false; this.onPartBlast?.(part); }
+    else { this.deathPoint(_p, k); scale = (1.3 + 1.3 * k + Math.random() * 0.8) * gs; color = Math.random() < 0.5 ? dc[0] : dc[1]; }
+    this.blastFx(ctx, _p, scale, color, deb);
+    ctx.fx?.debris?.(_p, 8, deb);
+    ctx.fx?.shake?.(0.25 + 0.5 * k, 0.25);
+    ctx.audio?.sfx?.(part || S.n % 4 === 0 ? 'bigExplosion' : 'explosion', { position: _p, volume: 0.6 + 0.4 * k });
+    S.n++;
   }
 
   dyingUpdate(dt, ctx) {
-    const t = this.modeT, T = this.deathT ?? 5.2;
+    const t = this.modeT, D = this.dp, S = this.ds;
     // sink and tumble
-    this.rel.y -= 6 * dt * Math.min(1, t / 1.5);
-    this.body.rotation.z += dt * 0.12 * Math.min(1, t); this.body.rotation.x += dt * 0.05 * Math.min(1, t);
-    this.deathBoom -= dt;
-    if (this.deathBoom <= 0 && t < T - 0.6) {
-      this.deathBoom = 0.16 - Math.min(0.1, t * 0.02);
-      const b = this.bounds ?? new THREE.Vector3(10, 5, 15), s = this.group.scale.x;
-      _p.set((Math.random() * 2 - 1) * b.x, (Math.random() * 2 - 1) * b.y, (Math.random() * 2 - 1) * b.z).multiplyScalar(s);
-      this.group.localToWorld(_p);
-      const big = Math.random() < 0.3;
-      const dc = this.deathColors ?? [0xffaa33, 0xff5522];
-      ctx.fx?.explosion?.(_p, { scale: (big ? 5 : 3) * s, big, color: Math.random() < 0.5 ? dc[0] : dc[1] });
-      ctx.fx?.debris?.(_p, 10, this.debrisColor ?? 0x883344);
-      ctx.fx?.shake?.(0.5 + t * 0.25, 0.3);
-      ctx.audio?.sfx?.(big ? 'bigExplosion' : 'explosion', { position: _p });
+    const ramp = Math.min(1, t / 1.5);
+    this.rel.y -= (t < D.burstAt ? D.sink : D.sinkAfter) * dt * ramp;
+    this.body.rotation.z += dt * 0.12 * ramp * D.tumble; this.body.rotation.x += dt * 0.05 * ramp * D.tumble;
+    if (!S.shot && t >= D.shotAt) { S.shot = true; ctx.cinema?.play(`boss.${this.key}.finisher`, { data: { boss: this } }); }
+    // cascade, then a thinner trail of fires in the aftermath
+    S.cd -= dt;
+    if (S.cd <= 0 && t < D.T - 0.5) {
+      if (!S.burst) { const k = clamp(t / D.burstAt, 0, 1); S.cd = 0.34 - 0.25 * k * k + Math.random() * 0.04; this.deathBlast(ctx, k); }
+      else { S.cd = (D.afterCd ?? 0.2) + Math.random() * 0.1; this.deathPoint(_p, 1); this.blastFx(ctx, _p, (D.afterScale ?? 1.3) * S.gs, (this.deathColors ?? [0xffaa33])[0], this.debrisColor); }
     }
-    if (t > T * 0.55 && !this.deathSlow) { this.deathSlow = true; ctx.events.emit('fx:hitstop', { duration: 0.5 }); ctx.fx?.flash?.('#ffddaa', 0.35, 0.3); }
-    if (t > T - 0.7 && !this.deathFinal) {
-      this.deathFinal = true;
-      ctx.fx?.explosion?.(this.position, { scale: 16 * this.group.scale.x, big: true, color: (this.deathColors ?? [0xffcc66])[0] });
-      ctx.fx?.shockwave?.(this.position, { radius: 60, color: 0xffddaa });
-      ctx.fx?.flash?.('#ffffff', 1.0, 0.9); ctx.fx?.shake?.(3, 1.0);
-      ctx.events.emit('fx:hitstop', { duration: 0.7 });
-      ctx.audio?.sfx?.('bigExplosion', { position: this.position, volume: 1 });
-      this.after(0.12, () => { this.group.visible = false; });
+    this.deathTick?.(dt, t, S, ctx);
+    // slow motion beat: lands the burst inside it
+    if (!S.slow && t >= D.burstAt - 0.09) { S.slow = true; ctx.game?.hitStop?.(0.75, 0.16); }
+    if (!S.burst && t >= D.burstAt) { S.burst = true; S.ff = 0; }
+    // the flash ramps in over three frames; the detonation itself happens on the last one, under the peak
+    if (S.ff >= 0 && S.ff < 3) {
+      ctx.fx?.flash?.(D.flash, D.flashPeak * (S.ff + 1) / 3, 0.55);
+      if (S.ff === 2) this.deathBurst(ctx);
+      S.ff++;
     }
-    if (t > T) this.finish(ctx);
+    if (t > D.T) this.finish(ctx);
   }
 
-  finish(ctx) {
+  deathBurst(ctx) {
+    const c = this.focus(_c), gs = this.ds.gs, dc = this.deathColors ?? [0xffcc66, 0xff8844];
+    this.burstFx(ctx, c, gs, dc[0]);
+    ctx.fx?.debris?.(c, 30, this.debrisColor ?? 0x883344);
+    ctx.fx?.sparks?.(c, null, 40);
+    ctx.fx?.shake?.(2.2, 1.2, 'boss');
+    ctx.audio?.sfx?.('bigExplosion', { position: c, volume: 1 });
+    if (this.hideAtBurst) this.hideAtBurst(); else this.group.visible = false;
+    this.onBurst?.(ctx, c);
+    this.declareDefeated(ctx);
+  }
+
+  /** boss:defeated: score, victory flow, atmosphere. The HUD answers it with a near white screen flash; that one is capped here. */
+  declareDefeated(ctx) {
     if (this.defeated) return;
     this.defeated = true;
     ctx.state.boss = null;
-    ctx.events.emit('enemy:killed', { enemy: this, points: this.def.points, position: this.position.clone() });
-    ctx.events.emit('boss:defeated', { name: this.title, key: this.key });
+    const hud = ctx.ui?.hud, sf = hud?.screenFlash;
+    if (hud && sf) hud.screenFlash = (col, a, ms) => sf.call(hud, 'rgba(255,214,150,0.6)', Math.min(a, 0.22), Math.min(ms, 500));
+    try {
+      ctx.events.emit('enemy:killed', { enemy: this, points: this.def.points, position: this.position.clone() });
+      ctx.events.emit('boss:defeated', { name: this.title, key: this.key });
+    } finally { if (hud && sf) hud.screenFlash = sf; }
+  }
+
+  finish(ctx) {
+    this.declareDefeated(ctx);
     this.destroy(ctx);
   }
 
