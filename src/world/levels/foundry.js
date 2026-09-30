@@ -1,11 +1,12 @@
 // OBSIDIAN FOUNDRY: the Regent's forge. A floor of black glass cut by channels of molten metal, walls of obsidian
 // with slow giant gears and hydraulic rams, blue-white smelter beams, narrows, a sealed interior with beam gates and
-// spinning rotors, and a wide arena for the final fight.
+// spinning rotors, and a wide arena for the boss fight.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Rng, SlotPool, ChunkStreamer, texturedBox, cloudTexture, softDotTexture, canvasTexture, billboardPool, gearGeometry } from '../util.js';
 import { metalMaterial, motionMetal } from '../materials.js';
-import { createMolten } from '../liquids.js';
+import { createFoundryFloor } from '../atmosphere/foundryFloor.js';
+import { getAtmosphere } from '../atmosphere/index.js';
 import { createDust } from '../dust.js';
 
 const info = {
@@ -33,12 +34,12 @@ function buildEnvironment(ctx, W) {
   W.setup({
     fog: { color: FOG, near: 130, far: 1150 },
     sky: { top: 0x010207, mid: 0x060a16, horizon: 0x1a2438, bottom: 0x04060b, sunDir: new THREE.Vector3(0.05, 0.05, -1), sunColor: 0x8fb8ff, sunSize: 0.05, sunGlow: 0.6, stars: 0.12, nebula: 0.3, nebScale: 1.5, nebA: 0x0a1a3c, nebB: 0x101a32, nebC: 0x24427a, horizonWidth: 0.3, haze: 0.55 },
-    lights: { sunColor: 0xb0d4ff, sunIntensity: 2.1, sunDir: new THREE.Vector3(-0.3, 0.85, 0.4), skyColor: 0x3a5a90, groundColor: 0xff8a34, hemiIntensity: 1.35, rimColor: 0xff9a44, rimIntensity: 0.9, rimDir: new THREE.Vector3(0.3, -0.15, -1) },
+    // cold blue steel with hot orange edges. The light rig is modulated every frame in update() (zone, surge, feel parameters)
+    lights: { sunColor: 0xa8c4ff, sunIntensity: 1.7, sunDir: new THREE.Vector3(-0.3, 0.85, 0.4), skyColor: 0x2c4a80, groundColor: 0xff7428, hemiIntensity: 1.0, rimColor: 0xff8438, rimIntensity: 0.6, rimDir: new THREE.Vector3(0.85, 0.12, -0.25) },
     look: info.look, env: 0.45,
   });
 
-  const floor = createMolten();
-  softenCrucibles(floor.mat);
+  const floor = createFoundryFloor();
   root.add(floor.mesh);
 
   const uTime = { value: 0 };
@@ -52,29 +53,33 @@ function buildEnvironment(ctx, W) {
   const lintel = new SlotPool(res.get('vlintel', () => texturedBox(1, 12, 20, 0.03)), metal, CH, 2);
   const stackG = res.get('vstack', () => { const g = new THREE.CylinderGeometry(6, 10, 1, 8); g.translate(0, 0.5, 0); return g; });
   const stacks = new SlotPool(stackG, metal, CH, 3);
-  const glowMat = (key, hex, mult) => res.get(key, () => new THREE.MeshBasicMaterial({ color: new THREE.Color(hex).multiplyScalar(mult), toneMapped: false }));
-  const stripsB = new SlotPool(new THREE.BoxGeometry(1, 1, 1), glowMat('vstripB', 0x8ac8ff, 1.35), CH, 20, { colors: false });
-  const stripsA = new SlotPool(new THREE.BoxGeometry(1, 1, 1), glowMat('vstripA', 0xff9a30, 1.6), CH, 8, { colors: false });
+  // glowing strips: the colour is HDR on purpose (bloom picks the seams up) but capped, and scaled live by the feel parameter
+  const STRIP_B = new THREE.Color(0x8ac8ff).multiplyScalar(1.15), STRIP_A = new THREE.Color(0xff9a30).multiplyScalar(1.35);
+  const glowMat = (key, base) => res.get(key, () => new THREE.MeshBasicMaterial({ color: base.clone(), toneMapped: false }));
+  const stripBMat = glowMat('vstripB', STRIP_B), stripAMat = glowMat('vstripA', STRIP_A);
+  const stripsB = new SlotPool(new THREE.BoxGeometry(1, 1, 1), stripBMat, CH, 20, { colors: false });
+  const stripsA = new SlotPool(new THREE.BoxGeometry(1, 1, 1), stripAMat, CH, 8, { colors: false });
   // giant gears (two tooth counts) and hydraulic rams on the walls
   const gearMat = motionMetal(res, 'spin', uTime, { speed: 0.5 });
   const gearA = new SlotPool(res.get('gearA', () => gearGeometry({ teeth: 20, holes: 6 })), gearMat, CH, 3);
   const gearB = new SlotPool(res.get('gearB', () => gearGeometry({ teeth: 32, ri: 0.92, hole: 0.12, holes: 8, thick: 0.1 })), gearMat, CH, 3);
   const ramHousing = new SlotPool(res.get('ramH', () => { const g = new THREE.CylinderGeometry(6.5, 7.2, 8, 10); g.rotateZ(Math.PI / 2); g.translate(3, 0, 0); return g; }), metal, CH, 3);
   const ramRod = new SlotPool(res.get('ramR', () => { const g = new THREE.CylinderGeometry(3.4, 3.4, 12, 10); g.rotateZ(Math.PI / 2); g.translate(8, 0, 0); const p = new THREE.CylinderGeometry(6, 6, 1.6, 10); p.rotateZ(Math.PI / 2); p.translate(14.8, 0, 0); return mergeTwoNonIndexed(g, p); }), motionMetal(res, 'slide', uTime, { amp: 11, speed: 0.45 }), CH, 3, { colors: false });
-  // smelter beams: a narrow white core and a wide blue halo, brightness fading up the column
-  const beamCore = res.get('beamCoreG', () => columnGeometry(1, 0xffffff));
-  const beamHalo = res.get('beamHaloG', () => columnGeometry(1, 0x4a90ff));
-  const beamMatA = res.get('beamMatA', () => new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
-  const beamMatB = res.get('beamMatB', () => new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+  // smelter beams: a narrow blue-white core and a wide blue halo, brightness fading up the column. Colours stay below 1 so the
+  // additive stack of core plus halo plus bloom cannot clip to pure white.
+  const beamCore = res.get('beamCoreG', () => columnGeometry(1, 0xcfe2ff));
+  const beamHalo = res.get('beamHaloG', () => columnGeometry(1, 0x3f7cff));
+  const beamMatA = res.get('beamMatA', () => new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  const beamMatB = res.get('beamMatB', () => new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
   const beamsA = new SlotPool(beamCore, beamMatA, CH, 3, { colors: false });
   const beamsB = new SlotPool(beamHalo, beamMatB, CH, 3, { colors: false });
-  const flare = billboardPool(res.own(softDotTexture('170,210,255')), CH, 4, { additive: true, opacity: 0.85, near: 60 });
+  const flare = billboardPool(res.own(softDotTexture('170,210,255')), CH, 4, { additive: true, opacity: 0.6, near: 60 });
   // molten floor glow: a smooth gaussian-like falloff that reaches zero well inside the quad, so nothing can show a hard edge
   const glow = billboardPool(res.own(glowTexture('255,120,36')), CH, 5, { additive: true, opacity: 0.1, near: 140 });
   const smoke = billboardPool(res.own(cloudTexture('60,72,96', '14,18,30')), CH, 5, { opacity: 0.55, near: 80 });
   const all = [...wallPools, ridge, ceil, beam, lintel, stacks, stripsB, stripsA, gearA, gearB, ramHousing, ramRod, beamsA, beamsB, flare, glow, smoke];
   for (const p of all) root.add(p.mesh);
-  const dust = createDust({ count: 200, color: 0xffc070, depth: 300, spreadX: 50, spreadY: 32, len: 0.02, opacity: 0.75, seed: 9, rise: 7 });
+  const dust = createDust({ count: 200, color: 0xffc070, depth: 300, spreadX: 50, spreadY: 32, len: 0.02, opacity: 0.6, seed: 9, rise: 7 });
   root.add(dust.object);
   const tint = [0xffffff, 0xdde4f4, 0xc8d4ea, 0xe8ecf8, 0xb8c4de];
 
@@ -110,7 +115,6 @@ function buildEnvironment(ctx, W) {
             if (L.interior) stripsB.add(side * (hw - 0.3), 16.3, zc, 0.6, 0.7, SL * 0.9);
             // gears and rams set into the wall (not in the tight interior)
             if (!L.interior) {
-              const gi = s + (idx & 1);
               if (rng.chance(0.4)) {
                 const R = rng.range(18, 34), y = rng.range(-8, 34) + (R > 26 ? 6 : 0);
                 const pool = rng.chance(0.5) ? gearA : gearB;
@@ -128,76 +132,90 @@ function buildEnvironment(ctx, W) {
         if (L.interior) ceil.add(0, 18, zc, 1, 1, 1, 0, 0, 0, 0xffffff);
         if (L.interior) stripsB.add(0, 17.2, zc, 2.2, 0.4, SL * 0.7);
       }
-      // gantries and heavy lintels across the corridor
+      // Everything below is placed by its OWN rail distance, not by the zone of the chunk centre. A 240 unit chunk that straddles the
+      // sealed forge (rail 3900 to 4900) used to drop stacks, floor glow, smoke and beams into the interior, where the additive glow
+      // sprites sat next to the camera and made the entrance stretch far too bright.
       const dz = -z0 - LEN / 2;
       const L2 = layout(dz);
-      if (!L2.interior) {
-        const n = L2.narrows ? 3 : rng.chance(0.5) ? 1 : 0;
-        for (let i = 0; i < n; i++) beam.add(0, rng.range(30, 55), z0 - rng.r() * LEN, (L2.hw + 24) * 2, 1, 1, 0, 0, 0, 0xffffff);
-        if (!L2.arena && dz < 6100 && rng.chance(0.75)) lintel.add(0, rng.range(64, 76), z0 - rng.r() * LEN, (L2.hw + 70) * 2, 1, 1, 0, 0, 0, 0xffffff);
-      }
+      // gantries and heavy lintels across the corridor
+      const nb = L2.narrows ? 3 : rng.chance(0.5) ? 1 : 0;
+      for (let i = 0; i < nb; i++) { const z = z0 - rng.r() * LEN, Li = layout(-z); if (!Li.interior) beam.add(0, rng.range(30, 55), z, (Li.hw + 24) * 2, 1, 1, 0, 0, 0, 0xffffff); }
+      if (!L2.arena && dz < 6100 && rng.chance(0.75)) { const z = z0 - rng.r() * LEN, Li = layout(-z); if (!Li.interior) lintel.add(0, rng.range(64, 76), z, (Li.hw + 70) * 2, 1, 1, 0, 0, 0, 0xffffff); }
       // smelter stacks and beams beyond the walls, molten glow and smoke
       for (let i = 0; i < 3; i++) {
-        if (L2.interior) break;
-        const h = rng.range(90, 170), x = rng.sign() * (L2.hw + rng.range(60, 220)), z = z0 - rng.r() * LEN;
+        const h = rng.range(90, 170), sg = rng.sign(), off = rng.range(60, 220), z = z0 - rng.r() * LEN, Li = layout(-z);
+        if (Li.interior) continue;
+        const x = sg * (Li.hw + off);
         stacks.add(x, FLOOR, z, 1, h, 1, 0, 0, 0, 0xffffff);
         flare.add(x, FLOOR + h + 6, z, 46, 46, 1);
       }
-      if (!L2.interior) {
-        for (let i = 0; i < (L2.arena ? 3 : 2); i++) {
-          const inside = !L2.arena && rng.chance(0.5);
-          const x = rng.sign() * (inside ? Math.max(38, L2.hw - rng.range(6, 16)) : L2.hw + rng.range(20, L2.arena ? 260 : 120)), z = z0 - rng.r() * LEN;
-          const r = rng.range(1.8, 3.4);
-          beamsA.add(x, FLOOR, z, r * 0.45, 320, r * 0.45);
-          beamsB.add(x, FLOOR, z, r * 1.7, 320, r * 1.7);
-        }
+      for (let i = 0; i < (L2.arena ? 3 : 2); i++) {
+        const inside = rng.chance(0.5), sg = rng.sign(), z = z0 - rng.r() * LEN, Li = layout(-z);
+        const off = rng.range(20, Li.arena ? 260 : 120), off2 = rng.range(6, 16), r = rng.range(1.8, 3.4);
+        if (Li.interior) continue;
+        const x = sg * (inside && !Li.arena ? Math.max(38, Li.hw - off2) : Li.hw + off);
+        beamsA.add(x, FLOOR, z, r * 0.45, 320, r * 0.45);
+        beamsB.add(x, FLOOR, z, r * 1.7, 320, r * 1.7);
       }
-      if (!L2.interior) for (let i = 0; i < 5; i++) { const gw = rng.range(120, 260), gh = rng.range(50, 90); glow.add(rng.range(-160, 160), FLOOR + gh * 0.6, z0 - rng.r() * LEN, gw, gh, 1); }
-      for (let i = 0; i < 5; i++) smoke.add(rng.range(-500, 500), rng.range(60, 220), z0 - rng.r() * LEN, rng.range(250, 500), rng.range(90, 180), 1, 0, 0, 0, i % 2 ? 0xffffff : 0xa0b0d0);
+      for (let i = 0; i < 5; i++) {
+        const gw = rng.range(120, 260), gh = rng.range(50, 90), gx = rng.range(-160, 160), z = z0 - rng.r() * LEN;
+        if (!layout(-z).interior) glow.add(gx, FLOOR + gh * 0.6, z, gw, gh, 1);
+      }
+      for (let i = 0; i < 5; i++) {
+        const x = rng.range(-500, 500), y = rng.range(60, 220), z = z0 - rng.r() * LEN, w = rng.range(250, 500), h = rng.range(90, 180);
+        if (!layout(-z).interior) smoke.add(x, y, z, w, h, 1, 0, 0, 0, i % 2 ? 0xffffff : 0xa0b0d0);
+      }
       for (const p of all) p.end();
     },
   });
 
-  // a cold fill light that travels with the ship so the black glass catches highlights
-  const fill = new THREE.PointLight(0x9ac8ff, 1100, 160, 2);
-  W.lights.group.add(fill);
-
-  // slow smelter surge: a pressure pulse that brightens the beams and the floor light every few seconds
-  let nextSurge = 4, surge = 0;
+  // ---- light rig. The two atmosphere point lights (see src/world/atmosphere/rig.js) act as a cold fill that travels with the
+  // ship and an orange furnace light from below; both hand over to the boss hero lights during the boss fight.
+  const atmo = getAtmosphere(ctx);
+  let nextSurge = 4, surge = 0, inScale = 1, furnace = 1;
   const sky = W.sky.uniforms;
+  atmo.setIdle(W, (o, dt, c, w, P) => {
+    const rp = c.rail.position;
+    o.aPos.set(rp.x, rp.y + 5, rp.z - 34); o.aCol.setHex(0x8db4ff); o.aI = 420 * P.foundry_coldFill * inScale; o.aDist = 130;
+    o.bPos.set(rp.x, FLOOR + 5, rp.z - 22); o.bCol.setHex(0xff7a26); o.bI = 640 * P.foundry_furnaceLight * furnace * (0.5 + 0.5 * inScale); o.bDist = 110;
+  });
+  const tmpBase = { hemi: 1.0, sun: 1.7, rim: 0.6 };
 
   return {
     update(dt, ctx, force) {
+      const P = ctx.feel.p.atmosphere;
       uTime.value = W.time;
-      fill.position.set(ctx.rail.position.x, ctx.rail.position.y + 2, ctx.rail.position.z - 30);
-      stream.update(ctx.rail.position.z, 3, !!force);
-      floor.update(W.time, ctx.rail.position, FLOOR);
-      dust.update(dt, ctx);
+      const d = ctx.rail.distance ?? -ctx.rail.position.z;
+      // the sealed forge is a tight, glossy box: dim the whole rig there so the walls do not blow out
+      const inter = smooth(3860, 3910, d) * (1 - smooth(4890, 4940, d));
+      inScale = 1 - inter * (1 - P.foundry_interior);
       nextSurge -= dt;
       if (nextSurge <= 0) { nextSurge = 6 + Math.random() * 4; surge = 1; }
       surge = Math.max(0, surge - dt * 0.9);
       const pulse = surge * surge;
-      sky.uFlash.value = pulse * 0.12;
-      W.lights.hemi.intensity = 1.35 + pulse * 0.5;
-      beamMatA.opacity = 0.75 + pulse * 0.25 + Math.sin(W.time * 3.1) * 0.05;
-      beamMatB.opacity = 0.26 + pulse * 0.2;
+      furnace = 1 + P.foundry_furnacePulse * (pulse * 0.9 + 0.18 * Math.sin(W.time * 1.7) + 0.08 * Math.sin(W.time * 4.3));
+      sky.uFlash.value = pulse * 0.08;
+      const L = W.lights;
+      L.hemi.intensity = (tmpBase.hemi + pulse * 0.25) * P.foundry_steel * inScale;
+      L.sun.intensity = tmpBase.sun * P.foundry_steel * inScale;
+      L.rim.intensity = tmpBase.rim * P.foundry_rimLight * inScale * (1 + pulse * 0.4);
+      // seams and beams: bounded brightness, breathing with the surge
+      const sg = P.foundry_stripGlow * (0.94 + 0.06 * pulse);
+      stripBMat.color.copy(STRIP_B).multiplyScalar(sg); stripAMat.color.copy(STRIP_A).multiplyScalar(sg * (0.9 + 0.2 * furnace));
+      beamMatA.color.setScalar(P.foundry_beamGlow); beamMatB.color.setScalar(P.foundry_beamHalo);
+      beamMatA.opacity = 0.7 + pulse * 0.2 + Math.sin(W.time * 3.1) * 0.04;
+      beamMatB.opacity = 0.24 + pulse * 0.16;
+      flare.mesh.material.uniforms.uOpacity.value = 0.6 * P.foundry_poolGlow;
+      glow.mesh.material.uniforms.uOpacity.value = 0.1 * P.foundry_floorHaze * (1 + pulse * 0.3);
+      smoke.mesh.material.uniforms.uOpacity.value = 0.55 * P.foundry_smoke;
+      floor.update(W.time, ctx.rail.position, FLOOR, { glow: P.foundry_poolGlow * (0.95 + 0.1 * furnace), pool: P.foundry_poolGlow, haze: P.foundry_floorHaze });
+      stream.update(ctx.rail.position.z, 3, !!force);
+      dust.update(dt, ctx);
     },
     invalidate() { stream.invalidate(); },
     reset(ctx) { dust.reset(ctx); nextSurge = 4; surge = 0; },
-    dispose() { W.lights.group.remove(fill); fill.dispose?.(); floor.dispose(); dust.dispose(); for (const p of all) p.mesh.dispose(); sky.uFlash.value = 0; },
+    dispose() { floor.dispose(); dust.dispose(); for (const p of all) p.mesh.dispose(); sky.uFlash.value = 0; },
   };
-}
-
-/** The floor shader draws crucible pools as flat hot discs with a short edge ramp, which bloom turns into opaque white ellipses.
- *  Swap the pool masks for a long smooth falloff and a lower peak. A no-op if the shader text ever changes. */
-function softenCrucibles(mat) {
-  const a = 'float pool = step(0.78, ph) * (1.0 - smoothstep(pr * 0.7, pr, length(p - c)));';
-  const b = 'float poolRing = step(0.78, ph) * (1.0 - smoothstep(pr, pr + 5.0, length(p - c)));';
-  if (!mat.fragmentShader.includes(a) || !mat.fragmentShader.includes(b)) return;
-  mat.fragmentShader = mat.fragmentShader
-    .replace(a, 'float pdn = clamp(length(p - c) / (pr * 1.5), 0.0, 1.0); float pfall = 1.0 - pdn * pdn * (3.0 - 2.0 * pdn); float pool = step(0.78, ph) * pfall * pfall * 0.62;')
-    .replace(b, 'float poolRing = step(0.78, ph) * pfall * pfall * 0.5;');
-  mat.needsUpdate = true;
 }
 
 /** Radial glow whose alpha follows a smooth bell and is exactly zero at 85 percent of the radius (no visible rim). */
@@ -243,7 +261,7 @@ function script(ctx, S, W) {
   // Pacing: beam gates with a lane threaded through them, a narrows of bulkheads, rotors, the forge interior, a capacitor
   // past the last gate, then the run to the arena. Escorts: PIP at a fixed spot, FERRO when a lane chain is completed.
 
-  T(15, [['CONTROL', 'Final transit. The Regent\'s forge lies inside that structure. Bring the core down.']]);
+  T(15, [['CONTROL', 'Transit inbound. The Regent\'s forge lies inside that structure. Bring the core down.']]);
   S.wave(260, 'vee', 0, 2, { type: 'grunt', count: 6 });
   S.wave(430, 'pincer', 0, 1, { type: 'interceptor', count: 4 });
   S.cells(600, 'shieldCell', 0, 0, 4, 'arc');
@@ -253,7 +271,11 @@ function script(ctx, S, W) {
 
   // smelter beam gates, with a slipstream lane that only works if you time it
   S.comm(930, 'LUMEN', 'Smelter beams cycling. 3.6 second period.', 3.2);
+  S.hint(50, 'CHARGE: hold SPACE, release to send a lock-on volley', 5);
+  S.hint(420, 'BOOST: SHIFT   BRAKE: C', 4);
+  S.hint(760, 'FLIP: Q or E deflects incoming fire', 5);
   S.hint(1010, 'GATES: fly through while the beams are dark', 5);
+  S.hint(1300, 'BOMB: X clears the screen', 4);
   S.obstacle(1080, 'laserGate', 0, 0, { kind: 'twin', phase: 0.4 });
   S.wave(1100, 'line', 0, 2, { type: 'grunt', count: 5 });
   S.obstacle(1200, 'laserGate', 0, 0, { kind: 'low', phase: 1.6 });

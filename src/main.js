@@ -8,9 +8,11 @@ function notice(title, text, { fixed = true } = {}) {
   box.style.cssText = fixed
     ? 'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center;background:#02060c;color:#dff6f2;font:14px/1.5 system-ui,sans-serif;pointer-events:auto;'
     : 'position:fixed;left:12px;right:12px;bottom:12px;padding:10px 14px;text-align:center;background:rgba(2,10,18,0.9);border:1px solid rgba(70,230,210,0.4);color:#dff6f2;font:13px/1.4 system-ui,sans-serif;z-index:100;pointer-events:auto;';
-  box.innerHTML = fixed
-    ? `<div style="font-size:20px;letter-spacing:0.3em;font-weight:300">${title}</div><div style="max-width:32em;opacity:.8">${text}</div>`
-    : `${title} ${text}`;
+  if (fixed) {
+    const t = document.createElement('div'); t.style.cssText = 'font-size:20px;letter-spacing:0.3em;font-weight:300'; t.textContent = title;
+    const d = document.createElement('div'); d.style.cssText = 'max-width:32em;opacity:.8'; d.textContent = text;
+    box.append(t, d);
+  } else box.textContent = `${title} ${text}`;
   uiRoot.appendChild(box);
   return box;
 }

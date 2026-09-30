@@ -21,7 +21,7 @@ Built with three.js (r170) and Vite. Everything is procedural: geometry from pri
 | Barrel roll (deflects incoming fire) | Q / E, or double tap A / D |
 | Pause | Esc or P |
 | Mouse aim | M toggles it in flight. Left button fires, right button bombs |
-| Title screen | Enter starts (after the sound gate, see below). M cycles the music style |
+| Title screen | Enter starts (after the sound gate, see below). 1, 2, 3 or Up and Down pick the MISSION (start in any level), Left and Right change the difficulty, M cycles the music style |
 | Pause menu | Arrows select, Left and Right change a value. Music style and the sound switch are in the AUDIO block |
 
 A gamepad works too: sticks to steer and aim, triggers and shoulders for fire, boost, brake and roll, Start to pause.
@@ -36,8 +36,8 @@ The MUSIC STYLE selector (title screen, M key or the arrows, and the pause menu)
 
 ## Features
 
-- Three levels, each ending in a multi-phase boss fight
-- Lock-on volley (a rotating hexagon frame with a numbered pip on each target), smart bomb, barrel roll that deflects enemy fire (and reflects some shells back), boost and brake
+- Three levels, each ending in a multi-phase boss fight (play order: Obsidian Foundry, the Cinder Belt, Thalassa Coast)
+- Lock-on volley (a rotating hexagon frame with a numbered pip on each target), pulse bomb, barrel roll that deflects enemy fire (and reflects some shells back), boost and brake
 - Pickups: SHIELD CELL (heals, laid out along a slipstream lane in chains of four with a bonus on the fourth), CAPACITOR (rare, one per level in a detour, raises maximum shield and heals fully), PULSE UPGRADE (weapon upgrade), BOMB and REPAIR
 - Two escort pilots (VEX, FERRO) and an escort drone (PIP) who fly beside you. A jamming contact can cut an escort's convoy transponder link in different ways (tail contact, blocked at a gate, drive fault, barrier), and a TRANSPONDER LINK readout with signal bars shows how much of the link is left to clear the contact
 - Comm traffic in three forms: portraits (VEX as a helmeted pilot, FERRO as a full-face visor helmet with a data-lens glyph, and the enemy AI REGENT as a waveform), typed text readouts (PIP, LUMEN, SABLE) and a text-only dispatch card from CONTROL
@@ -45,19 +45,19 @@ The MUSIC STYLE selector (title screen, M key or the arrows, and the pause menu)
 - Three difficulties: easy, normal, hard
 - Synthesised soundtrack with layered intensity, three selectable music styles (each with its own title, level, boss and sting themes) and spatialised effects
 - Tuned handling: a snappy, banking ship with a spring-mounted chase camera that leans into turns, layered screen shake and hit-stop that make impacts land, a speed sense built from FOV kick, streaks and motion blur
-- Post-processing (bloom, grade, FXAA) with adaptive quality that lowers resolution on slow GPUs (and leaves it alone when the frame rate is capped by the display)
+- A cinematic look: controlled HDR bloom, height fog, sun light shafts, a lens flare, a mild far blur and a colour grade per level, over a procedural ocean, clouds and sun scattering. On slower GPUs the adaptive quality gives things up in a fixed order (depth of field, shafts, water detail, bloom quality, then resolution) and leaves quality alone when the display caps the frame rate
 
 ## The levels
 
 | # | Level | Boss | Look |
 |---|---|---|---|
-| 1 | THALASSA COAST: a strike on a Dominion landing fleet | The Tidebreaker, a siege barge held by three mooring cables. Cut the cables, then reflect its siege shell with a barrel roll or shoot the armour off | Teal water, twin gold suns, coral spires and reef arches |
+| 1 | OBSIDIAN FOUNDRY: the Regent's forge | The Regent, a crystalline sovereign core encircled by four orbital prism emitters that only take damage while their lens is open | Black glass, molten metal, blue-white smelter beams |
 | 2 | THE CINDER BELT: through the burning debris | The Orrery, a ring-shaped warship with rotating segments and a sweeping beam | Ember-red debris with glowing cracks against a dark cyan void |
-| 3 | OBSIDIAN FOUNDRY: the Regent's forge | The Regent, a crystalline sovereign core encircled by four orbital prism emitters that only take damage while their lens is open | Black glass, molten metal, blue-white smelter beams |
+| 3 | THALASSA COAST: a strike on a Dominion landing fleet | The Tidebreaker, a siege barge held by three mooring cables. Cut the cables, then reflect its siege shell with a barrel roll or shoot the armour off | Teal water, twin gold suns, coral spires and reef arches |
 
 ## Run locally
 
-Requires Node 20.11 or newer (Node 22 is used in CI).
+Requires Node 20.11 or newer to build and run the game (Node 22 is used in CI). The test tools in `tools/` use puppeteer-core, which needs Node 22.12 or newer.
 
     npm install
     npm run dev        # http://localhost:5173
@@ -69,14 +69,15 @@ The build uses relative asset paths (`base: './'`), so the contents of `dist/` c
 ## Project layout
 
     src/core/       game loop and phases, input, rail, collision, camera rig, the feel registry
-    src/feel/       the tunable feel values (handling, impact, speed) and their presets
+    src/feel/       the tunable values (handling, impact, speed, look, sky, atmosphere) and their presets
     src/dev/        the ?tune=1 tuning panel and the ?diag=1 black frame detector
     src/entities/   the player controller and projectiles
-    src/world/      levels, sky, scenery, obstacles, pickups (shield cells, capacitor), level script runner
+    src/world/      levels, sky and clouds, ocean, scenery, obstacles, pickups (shield cells, capacitor), level script runner
+    src/world/atmosphere/  ambient particles, boss hero lights, the explosion flash guard, Foundry floor and Cinder dust ring
     src/enemies/    enemy types, formations, bosses
     src/allies/     escort AI (two pilots and a drone)
     src/models/     procedural ship models
-    src/render/     renderer, bloom, grade pass
+    src/render/     renderer and post chain (passes/), effect quality tiers (tiers.js), grade shader
     src/fx/         pooled particles, explosions, debris, impact feedback (shake, hit-stop), speed streaks and FOV kick
     src/ui/         HUD, menus, comm box and text readouts, portraits
     src/audio/      synth, sound effects, sequenced music, the three music styles
@@ -98,13 +99,18 @@ URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|norm
     node tools/gpuflicker.mjs <baseUrl> off 10        # black-pixel fraction over many frames
     node tools/feelbot.mjs <port> <outDir>            # scripted input, checks steering, camera, shake and hit-stop numbers
     node tools/telemetry.mjs <url> <seconds>          # frame time report on the real GPU
+    node tools/looktest.mjs <port> [outDir]           # screenshots at fixed points in every level plus frame ms per quality tier
+    node tools/blackframes.mjs <port> [seconds]       # reads back every frame, flags black frames and non-finite values (--switch sweeps tiers)
+    node tools/captest.mjs <port> [seconds]           # simulated 30 fps display: checks the adaptive quality and the tier order
+    node tools/whiteout.mjs <port> [seconds]          # luminance runs, catches screen wide white-outs in boss fights
+    node tools/release-check.mjs                      # fresh build, page loads, hostile URLs, docs and repo hygiene (run before a release)
 
 The tools launch Google Chrome from the macOS default path, or from the `CHROME_PATH` environment variable if it is set (for example `CHROME_PATH=/usr/bin/google-chrome node tools/flow.mjs 5173 out`), and expect a running dev server. Headless Chrome uses a software renderer and runs at a few frames per second, so the tests step simulated time instead of waiting.
 
 ## Status and known limits
 
 - Checked headless: no console errors, all three bosses beatable, full screen flow (title, pause, level complete, game over, restart).
-- Checked on an Apple silicon GPU (Metal): about 16.7 ms per frame (locked to 60 Hz, the speed effects add about 0.3 ms) and no rendering artefacts on any level or boss arena.
+- Checked on an Apple silicon GPU (Metal): locks 60 Hz at 1080p and 4 to 7 ms of GPU time per frame at the top quality tier (`tools/looktest.mjs` gives the figures), and no rendering artefacts on any level or boss arena.
 - Designed for desktop with a keyboard first. A gamepad is supported. There are no touch controls: on touch screens the title shows TAP TO START and a desktop notice, but the flight itself needs a keyboard or gamepad.
 - Needs a browser with WebGL2.
 - Steering feel is tuned by hand with the `?tune=1` panel (the default is the `tight` preset). Not measured: feel across other input devices, and how the audio sounds on different hardware.

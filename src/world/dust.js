@@ -1,6 +1,7 @@
 // Streaks of space dust / embers / spray around the rail: a strong speed cue. One LineSegments draw call.
 import * as THREE from 'three';
 import { Rng } from './util.js';
+import { tickAtmosphere } from './atmosphere/index.js';
 
 export function createDust({ count = 260, color = 0xaad0ff, depth = 320, spreadX = 60, spreadY = 34, len = 0.05, opacity = 0.7, rise = 0, seed = 3, tail = 0.0 } = {}) {
   const rng = new Rng(seed);
@@ -26,6 +27,7 @@ export function createDust({ count = 260, color = 0xaad0ff, depth = 320, spreadX
   return {
     object: lines,
     update(dt, ctx) {
+      tickAtmosphere(ctx, dt);
       const rz = ctx.rail.position.z, rx = ctx.rail.position.x, ry = ctx.rail.position.y;
       const speed = ctx.rail.speed ?? 40;
       const L = Math.max(0.6, speed * len);

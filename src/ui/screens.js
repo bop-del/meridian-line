@@ -2,6 +2,7 @@
 import { h, setText, fmt } from './dom.js';
 
 const DIFFS = ['easy', 'normal', 'hard'];
+const MISSIONS = ['OBSIDIAN FOUNDRY', 'THE CINDER BELT', 'THALASSA COAST'];   // play order, same as config.levels
 const fmtTime = (t) => { t = Math.max(0, Math.round(t || 0)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
 const VOL_KEY = 'meridian-line-volumes-v1';
 const MUTE_KEY = 'meridian-line-muted-v1';
@@ -18,8 +19,8 @@ const CREDITS = [
   ['ESCORTS', 'r'], ['Vex, Ferro and the drone Pip', 'n'],
   ['FLIGHT CONTROL', 'r'], ['Meridian Control, dispatch and logging', 'n'],
   ['SHIP SYSTEMS', 'r'], ['LUMEN', 'n'],
-  ['THE MERIDIAN REACH', 'r'], ['Thalassa Coast, the Cinder Belt, the Obsidian Foundry', 'n'],
-  ['THE OPPOSITION', 'r'], ['The Halvane Dominion, and the Regent, patient to the last', 'n'],
+  ['THE MERIDIAN REACH', 'r'], ['The Obsidian Foundry, the Cinder Belt, Thalassa Coast', 'n'],
+  ['THE OPPOSITION', 'r'], ['The Halvane Dominion, and the Regent, patient until the forge fell', 'n'],
   ['VISUAL EFFECTS', 'r'], ['Fire, glass, dust and light', 'n'],
   ['MUSIC AND SOUND', 'r'], ['Every note and every beep is synthesised live', 'n'],
   ['', 'gap'],
@@ -33,8 +34,8 @@ const CREDITS = [
 
 // ==== letter rank: S, A, B or C from a composite of score against a per-level par, shield remaining, lives lost,
 // time and escorts alive. levelInfo.par / levelInfo.parTime override the defaults below.
-const PAR_SCORE = [24000, 26000, 30000];
-const PAR_TIME = [200, 215, 230]; // seconds
+const PAR_SCORE = [30000, 26000, 24000];   // Foundry, Cinder Belt, Thalassa Coast
+const PAR_TIME = [230, 215, 200]; // seconds
 const RANK_CUTS = [['S', 85], ['A', 70], ['B', 50], ['C', 0]];
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
@@ -56,6 +57,7 @@ export class Screens {
     this.ctx = ctx; this.ui = ui;
     this.current = null;
     this.defs = {};
+    this.mission = 0;
     this.difficulty = ctx.state?.difficulty && DIFFS.includes(ctx.state.difficulty) ? ctx.state.difficulty : 'normal';
     this.counters = [];
     this.stars = null;
@@ -286,6 +288,21 @@ export class Screens {
     press.addEventListener('click', () => this.startGame());
 
     const opts = h('div', 'title-opts', null, inner);
+    // mission selector (keys 1 to 3, up and down, or click): jump straight into any level
+    const mis = h('div', 'diff mission-sel', null, opts);
+    h('div', 'diff-l', 'MISSION', mis);
+    const mrow0 = h('div', 'diff-row', null, mis);
+    const pm = h('button', 'arrow', '<', mrow0); pm.type = 'button'; pm.tabIndex = -1;
+    this.missionPills = MISSIONS.map((name, i) => {
+      const b = h('button', 'pill', String(i + 1), mrow0);
+      b.type = 'button'; b.tabIndex = -1;
+      b.addEventListener('click', () => this.setMission(i));
+      return b;
+    });
+    const nm = h('button', 'arrow', '>', mrow0); nm.type = 'button'; nm.tabIndex = -1;
+    pm.addEventListener('click', () => this.cycleMission(-1));
+    nm.addEventListener('click', () => this.cycleMission(1));
+    this.missionHint = h('div', 'diff-hint', '', mis);
     const diff = h('div', 'diff', null, opts);
     h('div', 'diff-l', 'DIFFICULTY', diff);
     const row = h('div', 'diff-row', null, diff);
@@ -314,7 +331,7 @@ export class Screens {
     const leg = h('div', 'legend', null, d.el);
     const keys = [
       ['WASD / ARROWS', 'STEER'], ['SPACE / Z', 'FIRE, HOLD TO LOCK'], ['X', 'BOMB'], ['SHIFT', 'BOOST'],
-      ['CTRL / C', 'BRAKE'], ['Q / E', 'BARREL ROLL'], ['ESC / P', 'PAUSE'], ['M', 'MUSIC STYLE'],
+      ['CTRL / C', 'BRAKE'], ['Q / E', 'BARREL ROLL'], ['ESC / P', 'PAUSE'], ['M', 'MUSIC STYLE'], ['1 / 2 / 3', 'MISSION'],
     ];
     for (const [k, v] of keys) {
       const r = h('div', 'lg', null, leg);
@@ -323,6 +340,7 @@ export class Screens {
     this.speakerButton(d.el, 'title-speaker');
     this.buildGate(d.el);
     this.refreshDifficulty();
+    this.refreshMission();
   }
 
   // one-time sound gate: covers the title until the first key, click or tap, so the title theme can start
@@ -354,13 +372,28 @@ export class Screens {
     this.diffHint.textContent = hints[this.difficulty];
   }
 
+  setMission(i) {
+    if (!(i >= 0 && i < MISSIONS.length)) return;
+    if (i !== this.mission) this.sfx('uiMove', { volume: 0.6 });
+    this.mission = i;
+    this.refreshMission();
+  }
+
+  cycleMission(d) { this.setMission((this.mission + d + MISSIONS.length) % MISSIONS.length); }
+
+  refreshMission() {
+    if (!this.missionPills) return;
+    this.missionPills.forEach((p, i) => p.classList.toggle('sel', i === this.mission));
+    this.missionHint.textContent = `${this.mission + 1}. ${MISSIONS[this.mission]}`;
+  }
+
   startGame() {
     if (performance.now() < this.busyUntil) return;
     this.guard(900);
     this.ctx.audio?.unlock?.();
     this.sfx('uiSelect');
     if (this.ctx.state) this.ctx.state.difficulty = this.difficulty;
-    this.emit('ui:start', { difficulty: this.difficulty });
+    this.emit('ui:start', { difficulty: this.difficulty, level: this.mission });
   }
 
   // ==== pause
@@ -447,7 +480,7 @@ export class Screens {
     const wrap = h('div', 'victory-wrap', null, d.el);
     const left = h('div', 'v-left', null, wrap);
     h('div', 'panel-title big gold', 'THE LINE HOLDS', left);
-    h('div', 'panel-sub', 'THE REGENT IS SILENT', left);
+    h('div', 'panel-sub', 'THE ADVANCE IS BROKEN', left);
     const vbody = h('div', 'lc-body v-body', null, left);
     this.vStats = this.statBlock(vbody, ['SCORE', 'KILLS']);
     this.vRank = this.buildRank(vbody);
@@ -600,7 +633,8 @@ export class Screens {
       else if (k === 'm' || k === 'M') this.cycleMusicStyle(1);
       else if (k === 'ArrowLeft' || k === 'a' || k === 'A') this.cycleDifficulty(-1);
       else if (k === 'ArrowRight' || k === 'd' || k === 'D') this.cycleDifficulty(1);
-      else if (k === 'ArrowUp' || k === 'ArrowDown' || k === 'w' || k === 's') this.cycleDifficulty(k === 'ArrowUp' || k === 'w' ? -1 : 1);
+      else if (k === 'ArrowUp' || k === 'ArrowDown' || k === 'w' || k === 's') this.cycleMission(k === 'ArrowUp' || k === 'w' ? -1 : 1);
+      else if (k === '1' || k === '2' || k === '3') this.setMission(Number(k) - 1);
       else used = false;
       if (used) e.preventDefault();
       return;

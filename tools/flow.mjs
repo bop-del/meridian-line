@@ -1,7 +1,9 @@
 // Screen flow check: title, Enter to start, pause and resume, level complete, next level, game over, restart.
 // Usage: node tools/flow.mjs <port> <outDir>   (needs the dev server running; screenshots land in outDir)
 import puppeteer from 'puppeteer-core';
+import { mkdirSync } from 'node:fs';
 const [port, SP] = process.argv.slice(2);
+mkdirSync(SP, { recursive: true });
 const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: 'new',
   args: ['--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist','--window-size=1280,720'], defaultViewport: { width: 1280, height: 720 } });
 const page = await browser.newPage(); const errs = [];

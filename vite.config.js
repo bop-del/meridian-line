@@ -7,7 +7,7 @@ export default defineConfig({
   base: './',
   build: {
     target: 'es2022',
-    chunkSizeWarningLimit: 1200,
+    chunkSizeWarningLimit: 1400,
     rollupOptions: {
       input: {
         main: resolve(import.meta.dirname, 'index.html'),

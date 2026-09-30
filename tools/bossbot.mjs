@@ -1,7 +1,9 @@
 // Aimbot playthrough: jumps to the boss, aims at exposed weak points, verifies the flow reaches level complete.
 // Usage: node tools/bossbot.mjs <port> <outDir> [levels=0,1,2]
 import puppeteer from 'puppeteer-core';
+import { mkdirSync } from 'node:fs';
 const [port, SP, lv = '0,1,2'] = process.argv.slice(2);
+mkdirSync(SP, { recursive: true });
 const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: 'new',
   args: ['--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist','--window-size=1280,720'], defaultViewport: { width: 1280, height: 720 } });
 const page = await browser.newPage();
@@ -12,7 +14,7 @@ const info = () => page.evaluate(() => ({ phase: __ctx.state.phase, dist: Math.r
 for (const level of lv.split(',').map(Number)) {
   await page.goto(`http://localhost:${port}/?autostart=1&level=${level}&god=1`, { waitUntil: 'load' });
   await new Promise(r => setTimeout(r, 1500));
-  const bossAt = [6300, 6800, 7300][level];
+  const bossAt = [7300, 6800, 6300][level];   // Foundry, Cinder Belt, Thalassa (play order)
   await page.evaluate((d) => { __ctx.game.advance(3); __ctx.rail.position.z = -(d - 500); }, bossAt);
   let ended = null;
   for (let i = 0; i < 60 && !ended; i++) {

@@ -145,7 +145,7 @@ function twinHit(e, out, sends, t, pan, p, v) {
 }
 
 //
-// Level 3 laser (hyper): plasma cannon punch. About 60 ms sub thump under a sharp bright crack and a short metallic ring,
+// Level 3 laser (lance): plasma cannon punch. About 60 ms sub thump under a sharp bright crack and a short metallic ring,
 // dry with no tail so 5.6 shots per second stay articulate. Variation per call comes only from e.r().
 //
 function laser3Recipe(e) {
@@ -212,7 +212,7 @@ export const WEAPON_SFX = {
     return 0.26;
   },
 
-  // Level 3: hyper. Plasma cannon punch (see laser3Recipe above).
+  // Level 3: lance. Plasma cannon punch (see laser3Recipe above).
   laser3(e) { return laser3Recipe(e); },
 
   // Lock-on charge: an energy build. Detuned saws rising through an opening resonant filter, a vibrato whine,
@@ -323,7 +323,7 @@ export const WEAPON_SFX = {
     return 1.0;
   },
 
-  // Smart bomb: cinematic detonation. Blast, deep sub boom with a punch layer, a wide shockwave sweep,
+  // Pulse bomb: cinematic detonation. Blast, deep sub boom with a punch layer, a wide shockwave sweep,
   // rolling rumble, scattered debris and a cavernous tail from a small feedback delay network.
   bomb(e) {
     const { ac, t } = e;

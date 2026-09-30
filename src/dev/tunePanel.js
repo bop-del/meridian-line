@@ -12,6 +12,9 @@ const GROUP_INFO = {
   handling: 'How the ship flies: steering response, banking, camera follow',
   impact: 'Hits and kills: shake, hit-stop, damage feedback',
   speed: 'Sense of speed: FOV, streaks, blur, boost and brake looks',
+  look: 'Post-processing and grade: bloom, light shafts, lens flare, depth of field, height fog, colour grade per level',
+  sky: 'Sky, clouds and water: cloud layers, scattering, sea colour, reflections, foam',
+  atmosphere: 'Level atmosphere: fog, particles, ambient dressing, light rigs, boss lighting',
 };
 
 const CSS = `

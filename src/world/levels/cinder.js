@@ -6,6 +6,8 @@ import { Rng, SlotPool, ChunkStreamer, debrisGeometry, softDotTexture, billboard
 import { injectCracks } from '../materials.js';
 import { tunnelRocks } from '../obstacles.js';
 import { createDust } from '../dust.js';
+import { createDustRing } from '../atmosphere/dustRing.js';
+import { getAtmosphere } from '../atmosphere/index.js';
 
 const info = {
   name: 'THE CINDER BELT', subtitle: 'Through the burning debris', length: 7400, bossAt: 6800, music: 'cinder', theme: 'cinder', floorY: -400,
@@ -25,12 +27,15 @@ function density(d) {
   return 0.25;
 }
 
+let heatU = null;   // uHeat uniform of the tumble material, animated by the environment update
+
 function tumbleMaterial(res, uTime) {
   return res.get('tumbleMat', () => {
     const m = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9, metalness: 0.12 });
     m.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = uTime;
       injectCracks(sh, { heat: 1 });
+      heatU = sh.uniforms.uHeat;
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', `#include <common>
 uniform float uTime;
@@ -107,15 +112,21 @@ function buildEnvironment(ctx, W) {
   const mat = tumbleMaterial(res, uTime);
   const geos = [0, 1, 2].map((i) => res.get('bgDebris' + i, () => debrisGeometry(20 + i * 5, i)));
   const pools = geos.map((g, i) => new SlotPool(g, mat, CH, i === 0 ? 42 : 34));
-  const wisp = billboardPool(res.own(softDotTexture('255,255,255')), CH, 6, { additive: true, opacity: 0.1, near: 100 });
+  const wisp = billboardPool(res.own(softDotTexture('255,255,255')), CH, 8, { additive: true, opacity: 0.1, near: 100 });
+  // fog layers: big faint banks of cold mist that the ship flies through, and an ember haze on the side of the ember sun
+  const bank = billboardPool(res.own(softDotTexture('255,255,255')), CH, 7, { additive: true, opacity: 0.055, near: 110 });
+  const haze = billboardPool(res.own(softDotTexture('255,255,255')), CH, 3, { additive: true, opacity: 0.05, near: 140 });
+  const ring = createDustRing({ sun: ember });
   const dust = createDust({ count: 260, color: 0xff9448, depth: 320, spreadX: 55, spreadY: 32, len: 0.055, opacity: 0.8, seed: 4 });
   const ms = buildRingShip(res);
-  root.add(ms, dust.object, wisp.mesh);
+  root.add(ms, dust.object, wisp.mesh, bank.mesh, haze.mesh, ring.mesh);
   for (const p of pools) root.add(p.mesh);
 
   let away = 0;
   const tints = [0xffffff, 0xd8d0cc, 0xffd8c0, 0xc0d0d4, 0xb0a8a0, 0xf0c8a8];
   const wispCols = [0x0e8a9a, 0x0a6a7a, 0x12a0b0, 0x0a7a8a, 0xff5a20];
+  const bankCols = [0x0c4f5e, 0x0a3f4f, 0x104a58, 0x0d5c68, 0x2a1a14];
+  const hazeCols = [0xff5a20, 0xd8481a, 0xff7a34];
 
   const stream = new ChunkStreamer({
     len: LEN, count: CH, behind: 1,
@@ -124,7 +135,7 @@ function buildEnvironment(ctx, W) {
       const d = -z0 - LEN * 0.5;
       const k = density(d);
       for (const p of pools) p.begin(slot);
-      wisp.begin(slot);
+      wisp.begin(slot); bank.begin(slot); haze.begin(slot);
       const n = Math.round(k * 62);
       for (let i = 0; i < n; i++) {
         const big = rng.chance(0.08), mid = !big && rng.chance(0.3);
@@ -136,20 +147,51 @@ function buildEnvironment(ctx, W) {
         pools[rng.int(0, 2)].add(Math.cos(a) * rad * 1.2, Math.sin(a) * rad * 0.8, z0 - rng.r() * LEN, s, s * rng.range(0.7, 1), s, rng.r() * 6, rng.r() * 6, 0, c);
       }
       for (const p of pools) p.end();
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 8; i++) {
         const s = rng.range(300, 800), a = rng.range(0, 6.28), r = rng.range(250, 900);
         wisp.add(Math.cos(a) * r, Math.sin(a) * r * 0.7, z0 - rng.r() * LEN, s, s * 0.7, 1, 0, 0, 0, rng.pick(wispCols));
       }
-      wisp.end();
+      for (let i = 0; i < 7; i++) {
+        const s = rng.range(500, 1100), a = rng.range(0, 6.28), r = rng.range(90, 480);
+        bank.add(Math.cos(a) * r * 1.2, Math.sin(a) * r * 0.55, z0 - rng.r() * LEN, s, s * rng.range(0.35, 0.6), 1, 0, 0, 0, rng.pick(bankCols));
+      }
+      for (let i = 0; i < 3; i++) {
+        const s = rng.range(500, 900);
+        haze.add(rng.range(160, 620), rng.range(-160, 260), z0 - rng.r() * LEN, s, s * 0.7, 1, 0, 0, 0, rng.pick(hazeCols));
+      }
+      wisp.end(); bank.end(); haze.end();
     },
+  });
+
+  // ---- tension lighting. The two atmosphere point lights (see src/world/atmosphere/rig.js) are a hot ember light that rakes the
+  // wreckage from the side of the ember sun, and a cold cyan void fill from the other side that keeps the shadow side readable.
+  // Outside a boss fight they flare and dip slowly, more so as the ring vessel gets close.
+  const atmo = getAtmosphere(ctx);
+  let flick = 1;
+  atmo.setIdle(W, (o, dt, c, w, P) => {
+    const rp = c.rail.position;
+    o.aPos.set(rp.x + 30, rp.y + 12, rp.z - 46); o.aCol.setHex(0xff7a30); o.aI = 560 * P.cinder_emberLight * flick; o.aDist = 150;
+    o.bPos.set(rp.x - 28, rp.y - 14, rp.z - 20); o.bCol.setHex(0x2fd0e0); o.bI = 150 * P.cinder_voidLight; o.bDist = 110;
   });
 
   return {
     update(dt, ctx, force) {
+      const P = ctx.feel.p.atmosphere;
       uTime.value = W.time;
+      const prog = Math.min(1, (ctx.rail.distance ?? 0) / info.bossAt);
+      const t = W.time;
+      flick = 1 + P.cinder_tension * (0.10 * Math.sin(t * 0.9) + 0.07 * Math.sin(t * 2.3 + 1.3) + 0.04 * Math.sin(t * 5.1 + 0.4)) * (0.4 + 0.9 * prog);
+      const L = W.lights;
+      L.sun.intensity = 2.6 * P.cinder_emberLight * flick;
+      L.hemi.intensity = 0.75 * P.cinder_voidLight;
+      L.rim.intensity = 1.5 * P.cinder_voidLight;
+      if (heatU) heatU.value = P.cinder_debrisGlow * (1 + P.cinder_crackPulse * (0.22 * Math.sin(t * 0.7) + 0.1 * Math.sin(t * 1.9)));
+      wisp.mesh.material.uniforms.uOpacity.value = 0.1 * P.cinder_fogLayers;
+      bank.mesh.material.uniforms.uOpacity.value = 0.055 * P.cinder_fogLayers;
+      haze.mesh.material.uniforms.uOpacity.value = 0.05 * P.cinder_fogLayers;
+      ring.update(t, ctx.camera, P.cinder_dustRing);
       stream.update(ctx.rail.position.z, 3, !!force);
       dust.update(dt, ctx);
-      const prog = Math.min(1, ctx.rail.distance / info.bossAt);
       // the decorative ring ship looms closer, then slips back into the fog once the real boss shows up
       away += ((W.bossStarted ? 1 : 0) - away) * Math.min(1, dt * 0.8);
       ms.position.set(360 - prog * 220 + away * 500, 120 - prog * 40, ctx.rail.position.z - (2350 - prog * 1250) - away * 1800);
@@ -160,7 +202,7 @@ function buildEnvironment(ctx, W) {
     },
     invalidate() { stream.invalidate(); },
     reset(ctx) { dust.reset(ctx); away = 0; },
-    dispose() { dust.dispose(); for (const p of pools) p.mesh.dispose(); wisp.mesh.dispose(); },
+    dispose() { dust.dispose(); ring.dispose(); for (const p of pools) p.mesh.dispose(); wisp.mesh.dispose(); bank.mesh.dispose(); haze.mesh.dispose(); heatU = null; },
   };
 }
 

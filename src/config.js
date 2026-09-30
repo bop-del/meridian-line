@@ -20,7 +20,7 @@ export const config = {
     rollTime: 0.42, rollCooldown: 0.2, rollKick: 14,
     // boost
     boostDrain: 0.5, boostRegen: 0.28, boostRegenDelay: 0.6, boostLockout: 2.4, boostMinStart: 0.08,
-    // weapons. Damage units: 1 = one twin-laser hit; enemy hp in enemies/types is expressed in these units.
+    // weapons. Damage units: 1 = one paired-pulse hit; enemy hp in enemies/types is expressed in these units.
     laser: {
       1: { rate: 8.0, damage: 1, speed: 230, radius: 0.5, size: 1.0, both: false, color: 0xffb02e },
       2: { rate: 6.8, damage: 1, speed: 240, radius: 0.55, size: 1.15, both: true, color: 0xffd76a },
@@ -42,5 +42,5 @@ export const config = {
     hard:   { enemyHp: 1.3, enemyDamage: 1.4, enemyFireRate: 1.25, enemyCount: 1.2 },
   },
   combo: { window: 2.6, step: 4, maxMultiplier: 5 },
-  levels: ['thalassa', 'cinder', 'foundry'],
+  levels: ['foundry', 'cinder', 'thalassa'],   // play order: the Foundry opens the campaign, Thalassa Coast closes it
 };

@@ -38,6 +38,9 @@ Your changes are saved in the browser (local storage keys `meridian-feel` for va
 - **handling.** How the ship flies. *Input* is how quickly held keys ramp up and down, the response curve, stick deadzone and the double-tap roll rules. *Ship* is top speed, acceleration, how fast it stops, and how softly it eases into the edge of the play area. *Bank* is how far the ship leans, pitches and yaws, and how springy that is (damping under 1 overshoots and settles, which is what gives a sense of mass). *Roll* is the barrel roll: length, sideways kick, how long steering is locked out. *Boost* and *Brake* are the forward speed ramps. *Camera* is the trailing follow: distance, height, lag on each axis, look-ahead, swing with sideways speed, roll into the bank.
 - **impact.** How hits land. Shake per event type (player hit, blast, boss, barrel roll, death, explosion, charge, reflect), the caps that keep shake comfortable, hit-stop (the brief freeze on big events), damage vignette and low-health state, hit sparks, kill bursts, the reticle pulse and enemy wind-up cues.
 - **speed.** How fast it feels. Field-of-view kick on boost and brake, speed streaks and dust, motion blur and chromatic fringe, and the boost and brake visuals.
+- **look.** The post-processing and colour grade, with one set of values per level (`thalassa_`, `cinder_`, `foundry_`): bloom, white-out guard, light shafts, lens flare, height fog, far blur, contrast, saturation and the shadow and highlight tints. Presets: `cinematic` (the default) and `clean` (everything mild, near neutral grade), handy for judging what the look adds.
+- **sky.** Sky and water: cloud cover and light, sun scattering and glow per level, and for Thalassa Coast the sea colours, reflections, glitter, foam and shallows.
+- **atmosphere.** Level mood: fog, ambient particles, the Foundry furnace and beams, the Cinder Belt embers and dust ring, boss hero lights and the explosion flash guard.
 
 Every value has a hint. If a name is unclear, hover it.
 
@@ -107,7 +110,7 @@ The budgets are deliberately loose: they catch broken feel, not taste. Tighten t
 
 ## For developers: adding a tunable value
 
-Register it in the file for its group (`src/feel/handling.js`, `impact.js` or `speed.js`) and read it as `feel.p.<group>.<key>` every frame, never cached:
+Register it in the file for its group (`src/feel/handling.js`, `impact.js`, `speed.js`, `look.js`, `sky.js` or `atmosphere.js`) and read it as `feel.p.<group>.<key>` every frame, never cached:
 
 ```js
 feel.register('speed', {

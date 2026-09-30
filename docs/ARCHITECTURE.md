@@ -10,7 +10,7 @@ The game is an on-rails shooter, so most positions are expressed relative to an 
 - **The rail** (`src/core/rail.js`) is the anchor. `rail.position` moves forward along -Z at `rail.speed`, which eases towards a target that depends on boost, brake, the title screen and player death. `rail.distance` is the distance travelled and `-rail.position.z`. Level scripts, the boss trigger and the HUD progress bar are all keyed on `rail.distance`.
 - **Player position** is `rail.position + localOffset`, where `localOffset` is a 2D offset (x, y) clamped to `config.bounds` (14 by 8 world units). The player never moves on z relative to the rail.
 - **Enemies** default to rail-relative motion (`railRel = true`): a subclass writes `this.rel` (offset from the rail) and the base class derives the world position and velocity. Enemies that need free flight set `railRel = false` and write a world `vel` instead.
-- Units are metres and seconds. Damage is expressed in "laser hits": one twin-laser hit is 1 damage, and enemy hit points use the same unit.
+- Units are metres and seconds. Damage is expressed in "laser hits": one paired-pulse hit is 1 damage, and enemy hit points use the same unit.
 
 ## The shared `ctx` object
 
@@ -44,7 +44,7 @@ Every module is a singleton object with optional `init(ctx, uiRoot)`, `reset(ctx
 | world | `src/world/world.js` | Sky, lights, fog, streamed scenery, obstacles, pickups and the level script runner. |
 | enemies | `src/enemies/enemies.js` | Spawn API, formations, boss spawning, culling, difficulty scaling. |
 | allies | `src/allies/allies.js` | Escort flight AI (two pilots and a drone) and the escort-in-trouble mechanic (`allies.chaseMe(name, enemy, {time})`). |
-| player | `src/entities/player.js` | The Vanta Mk II controller: steering, barrel roll, boost and brake, twin laser, lock-on volley, bomb, damage and respawn. |
+| player | `src/entities/player.js` | The Vanta Mk II controller: steering, barrel roll, boost and brake, paired pulse, lock-on volley, bomb, damage and respawn. |
 | projectiles | `src/entities/projectiles.js` | Pooled player and enemy shots drawn with instanced meshes. |
 | collision | `src/core/collision.js` | Sphere and swept-segment tests between the groups, plus score and combo bookkeeping. |
 | cameraRig | `src/core/cameraRig.js` | Chase camera on critically damped springs (look-ahead, swing, bank roll, boost push and brake pull), adds the shake from `impact` and the FOV kick from `speedfx`, intro swoop, death cam, orbit shot for end screens. |
@@ -137,7 +137,7 @@ Modules talk through `ctx.events`. Names are `domain:action`. The ones in use:
 
 ## Rendering
 
-`src/render/renderer.js` owns the WebGL renderer and an `EffectComposer` chain: scene render, `UnrealBloomPass`, a custom grade pass (`postShader.js`: vignette, chromatic aberration, grain, radial speed blur, damage pulse, flash, per-level tint), FXAA and the output pass. MSAA on the composer targets is off by default because it produced flickering black blocks on Apple GPUs through ANGLE. `?msaa=rt2` and `?msaa=both` bring it back for comparison. Quality adapts to frame time, and `?q=0..n` forces a level.
+`src/render/renderer.js` owns the WebGL renderer and an `EffectComposer` chain built from `src/render/passes/`: the scene is drawn into an HDR target with a depth texture (`scenePass.js`), a sanitise pass removes NaN and Inf and adds height fog and a far-only depth of field (`fogPass.js`), `UnrealBloomPass` runs with a soft knee and a cap (`bloomPass.js`), a half resolution sun pass makes light shafts and the lens flare from the sky's suns (`sunPass.js`), and the grade shader (`postShader.js`: speed blur, chromatic fringe, bloom and shafts, a white-out guard, ACES tone mapping, per-level colour grade, vignette, damage, flash, grain) is followed by FXAA and the output pass. The values per level come from the `look` feel group. MSAA on the composer targets is off by default because it produced flickering black blocks on Apple GPUs through ANGLE. `?msaa=rt2` and `?msaa=both` bring it back for comparison. `src/render/tiers.js` holds the effect tiers (flags for depth of field, shafts, flare, water detail, fog and grade, plus pixel ratio and bloom scale) and the adaptive controller: effects drop in a fixed order, changes are requested after a frame and applied before the next draw, and a step down that does not help is undone. `?q=0..5` forces a tier. Sky, clouds and the ocean are in `src/world/sky.js` and `liquids.js`, level atmosphere (particles, boss hero lights, the explosion flash guard) in `src/world/atmosphere/`.
 
 ## Audio
 

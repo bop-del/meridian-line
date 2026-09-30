@@ -7,12 +7,12 @@ const $ = (id) => document.getElementById(id);
 const list = $('list'), status = $('status'), vol = $('vol'), pitch = $('pitch'), pvar = $('pvar');
 const DESC = {
   laser: 'Level 1 pulse. Tight and light: noise click, punchy body, one bright FM zap, crackle band. Fires 8 per second.',
-  laser2: 'Level 2 twin. Two panned barrels 30 ms apart, thicker body with saw growl and ring mod, slapback. 6.8 per second.',
-  laser3: 'Level 3 hyper. Plasma cannon punch: a tight sub thump, a sharp bright crack and a short metallic ring, dry with no tail. 5.6 per second.',
+  laser2: 'Level 2 paired. Two panned barrels 30 ms apart, thicker body with saw growl and ring mod, slapback. 6.8 per second.',
+  laser3: 'Level 3 lance. Plasma cannon punch: a tight sub thump, a sharp bright crack and a short metallic ring, dry with no tail. 5.6 per second.',
   laserCharge: 'Lock-on charge build: rising detuned saws through an opening filter, vibrato whine, accelerating noise pulse, latch tick.',
   lockon: 'Target ping: two crisp FM ticks a fifth apart. Rapid mode steps the pitch like consecutive locks in the game.',
   chargedShot: 'Homing volley launch: crack and thump, seven panned mini zaps, whoosh, saw tail, echo.',
-  bomb: 'Smart bomb: blast, sub boom, wide shockwave sweep, rolling rumble, debris and a cavernous tail.',
+  bomb: 'Pulse bomb: blast, sub boom, wide shockwave sweep, rolling rumble, debris and a cavernous tail.',
   reflect: 'Barrel roll deflect: struck metal ping with a chirp, ricochet zap, comb shimmer and a panned whoosh.',
 };
 

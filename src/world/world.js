@@ -16,7 +16,7 @@ import thalassa from './levels/thalassa.js';
 import cinder from './levels/cinder.js';
 import foundry from './levels/foundry.js';
 
-const LEVELS = [thalassa, cinder, foundry];
+const LEVELS = [foundry, cinder, thalassa];   // must match config.levels
 const _v = new THREE.Vector3();
 
 export const world = {
@@ -81,7 +81,7 @@ export const world = {
     const level = LEVELS[i];
     this.index = i; this.level = level;
     this.info = { ...level.info, index: i };
-    this.theme = level.info.theme ?? ['thalassa', 'cinder', 'foundry'][i];
+    this.theme = level.info.theme ?? ['foundry', 'cinder', 'thalassa'][i];
     this.res = new Resources();
     this.rng = new Rng(1000 + i * 77);
     this.bossStarted = false; this.bossSeen = false; this.bossTimer = 0; this.victory = null; this.finished = false; this.progress = 0; this.dropCd = 0;

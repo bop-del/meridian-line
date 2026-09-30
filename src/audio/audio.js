@@ -15,7 +15,7 @@ import { getNoise } from './synth.js';
 
 const MAX_VOICES = 30;
 const DEFAULT_META = { gap: 0.04, max: 4, prio: 2 };
-const LEVEL_MUSIC = ['thalassa', 'cinder', 'foundry'];
+const LEVEL_MUSIC = ['foundry', 'cinder', 'thalassa'];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 /**

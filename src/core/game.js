@@ -144,7 +144,7 @@ export function startGame(mount, uiRoot) {
   }
 
   function newRun(opts = {}) {
-    if (opts.difficulty && config.difficulty[opts.difficulty]) state.difficulty = opts.difficulty;
+    if (opts.difficulty && Object.hasOwn(config.difficulty, opts.difficulty)) state.difficulty = opts.difficulty;
     const diff = state.difficulty;
     const god = state.god;
     state.reset();
@@ -161,13 +161,19 @@ export function startGame(mount, uiRoot) {
     startLevel(state.levelIndex);
   }
 
+  // the title screen shows the bright Thalassa Coast behind it unless ?level= asks for another one
+  function titleLevel() {
+    if (params.has('level')) return Math.max(0, Math.min(config.levels.length - 1, Number(params.get('level')) || 0));
+    return Math.max(0, config.levels.indexOf('thalassa'));
+  }
+
   function toTitle() {
     const diff = state.difficulty, god = state.god;
     state.reset(); state.difficulty = diff; state.god = god;
     runFlag = false;
     audio.pauseMusic?.(false);
     state.phase = '';
-    prepareLevel(Math.max(0, Math.min(config.levels.length - 1, Number(params.get('level')) || 0)));
+    prepareLevel(titleLevel());
     setPhase('title');
     safe(allies, 'setEnabled', false);
     audio.music?.('title');
@@ -196,7 +202,7 @@ export function startGame(mount, uiRoot) {
     else startLevel(state.levelIndex + 1);
   });
   events.on('ui:quitToTitle', () => toTitle());
-  events.on('ui:difficulty', (d) => { const v = typeof d === 'string' ? d : d?.difficulty; if (config.difficulty[v]) state.difficulty = v; });
+  events.on('ui:difficulty', (d) => { const v = typeof d === 'string' ? d : d?.difficulty; if (Object.hasOwn(config.difficulty, v)) state.difficulty = v; });
 
   events.on('game:over', () => { if (state.phase === 'playing') setPhase('gameover'); });
   events.on('level:complete', () => {
@@ -229,10 +235,10 @@ export function startGame(mount, uiRoot) {
 
   // ------------------------------------------------------------------ boot
   if (params.get('god') === '1') state.god = true;
-  if (params.get('difficulty') && config.difficulty[params.get('difficulty')]) state.difficulty = params.get('difficulty');
-  const lvl = Math.max(0, Math.min(config.levels.length - 1, Number(params.get('level')) || 0));
+  if (params.get('difficulty') && Object.hasOwn(config.difficulty, params.get('difficulty'))) state.difficulty = params.get('difficulty');
+  const lvl = Math.max(0, Math.min(config.levels.length - 1, Number(params.get('level')) || 0));   // autostart begins here, level 0 is the first mission
   if (params.get('autostart') === '1') { state.phase = ''; newRun({ level: lvl }); }
-  else { state.phase = ''; prepareLevel(lvl); setPhase('title'); audio.music?.('title'); }
+  else { state.phase = ''; prepareLevel(titleLevel()); setPhase('title'); audio.music?.('title'); }
 
   // ------------------------------------------------------------------ frame
   function frame() {

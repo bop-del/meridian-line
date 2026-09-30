@@ -1,5 +1,5 @@
-// The Vanta controller: steering with inertia and banking, barrel roll, boost/brake, twin laser,
-// charge lock-on volley, smart bomb, damage, death and respawn, reticles.
+// The Vanta controller: steering with inertia and banking, barrel roll, boost/brake, paired pulse,
+// charge lock-on volley, pulse bomb, damage, death and respawn, reticles.
 // Public fields and methods: player.hitRadius (fair hitbox for shots), player.reticleFar, player.locks[],
 // player.hovered[] (enemies under the far reticle while holding fire), player.charge (0..1) and player.charging,
 // player.boostAmount/brakeAmount (smoothed 0..1 for camera and renderer), player.aimDir, player.localVelocity,
@@ -8,7 +8,7 @@
 // player.surge (visual forward slip in u, + is back).
 // Handling is live tuned through feel.p.handling (src/feel/handling.js): steering, soft edges, attitude springs,
 // surge, barrel roll. Values are read every frame.
-// Damage units: 1 = one twin-laser hit (enemy hp is expressed in hits). Death emits `game:over` when no lives remain.
+// Damage units: 1 = one paired-pulse hit (enemy hp is expressed in hits). Death emits `game:over` when no lives remain.
 import * as THREE from 'three';
 import { createVanta } from '../models/vanta.js';
 import { config } from '../config.js';

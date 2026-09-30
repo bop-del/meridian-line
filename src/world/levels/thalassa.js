@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { Rng, SlotPool, ChunkStreamer, rockGeometry, coralSpireGeometry, platformGeometry, hexFrameGeometry, cloudTexture, billboardPool } from '../util.js';
 import { coralMaterial } from '../materials.js';
 import { bargeGeometry, coralTorus, archHoop, REEF_PALETTE } from '../obstacles.js';
-import { createOcean } from '../liquids.js';
+import { createOcean, SRC_MAX } from '../liquids.js';
 import { createDust } from '../dust.js';
 
 const info = {
@@ -28,18 +28,25 @@ function zoneAt(d) {
 function buildEnvironment(ctx, W) {
   const res = W.res, root = W.root, floor = info.floorY;
   W.setup({
-    fog: { color: HAZE, near: 220, far: 1500 },
-    sky: { top: 0x12507a, mid: 0x3fa6ac, horizon: HAZE, bottom: 0x8fbfb0, sunDir: SUN, sunColor: 0xffc978, sunSize: 0.034, sunGlow: 1.1, sunDir2: SUN2, sunColor2: 0xff9860, sunSize2: 0.022, haze: 0.9, stars: 0, nebula: 0, horizonWidth: 0.45 },
-    lights: { sunColor: 0xffc890, sunIntensity: 2.4, sunDir: new THREE.Vector3(-0.7, 0.42, 0.45), skyColor: 0x86d0c8, groundColor: 0x2a7a80, hemiIntensity: 1.1, rimColor: 0xffa860, rimIntensity: 1.3, rimDir: new THREE.Vector3(0.1, 0.25, -1) },
+    fog: { color: HAZE, near: 200, far: 1450 },
+    sky: {
+      top: 0x0b3a68, mid: 0x3a96a4, horizon: HAZE, bottom: 0x8fbfb0, sunDir: SUN, sunColor: 0xffc070, sunSize: 0.034, sunGlow: 0.8,
+      sunDir2: SUN2, sunColor2: 0xff8a58, sunSize2: 0.022, haze: 0.3, stars: 0, nebula: 0, horizonWidth: 0.45,
+      // golden hour scattering and two cloud layers, amounts live in the registry (group sky, thalassa_*)
+      scatter: 0.9, scatterCol: 0xff9a48, clouds: 0.4, cloudsLow: 0.45, cloudLight: 1, cloudLit: 0xffe6b8, cloudShade: 0x466486,
+    },
+    // three point golden hour: raking gold key from the left and behind, warm orange rim from the suns ahead, teal sky fill with a teal sea bounce
+    lights: { sunColor: 0xffb878, sunIntensity: 2.6, sunDir: new THREE.Vector3(-0.85, 0.3, 0.32), skyColor: 0x7cc4c4, groundColor: 0x1f6a74, hemiIntensity: 0.95, rimColor: 0xff9a58, rimIntensity: 1.5, rimDir: new THREE.Vector3(0.1, 0.22, -1) },
     look: info.look, env: 0.8,
   });
 
-  // ------------------------------------------------ water: teal body, gold glitter from two suns
-  const ocean = createOcean({ sunDir: SUN, sunColor: 0xffd48a, sunDir2: SUN2, sunColor2: 0xff9a60, sky: 0xe8c890, deep: 0x05505e, shallow: 0x38bcae, foam: 0xfff0d0 });
+  // ------------------------------------------------ water: teal body, reflects the same sky and clouds, gold glitter from two suns
+  const ocean = createOcean({ skyUniforms: W.sky.uniforms, deep: 0x063f52, shallow: 0x3fc0b4, foam: 0xfff0d8 });
   root.add(ocean.mesh);
-
   // ------------------------------------------------ pools (one draw call each)
   const CH = 11, LEN = 240;
+  // foam sources: everything that stands in the water, per streamed chunk, flat lists of x, z, axisX, axisZ, radius (see updateFoam)
+  const foamBy = Array.from({ length: CH }, () => []);
   const coralM = coralMaterial(res);
   const coralArchM = coralMaterial(res, { tip: 0, freq: 0.3, heat: 0.7 });
   const platM = coralMaterial(res, { tip: 0, heat: 0.3 });
@@ -79,7 +86,8 @@ function buildEnvironment(ctx, W) {
   const warm = [pools.spA, pools.spB, pools.spC];
   const cool = [pools.coolA, pools.coolB];
   const hazeTex = res.own(cloudTexture('255,226,176', '120,190,180'));
-  const clouds = billboardPool(hazeTex, CH, 9, { opacity: 0.8, near: 60 });
+  const clouds = billboardPool(hazeTex, CH, 9, { opacity: 0.5, near: 60 });
+  clouds.mesh.name = 'hazeBanks';
   const all = [...Object.values(pools), clouds];
   for (const p of all) root.add(p.mesh);
 
@@ -100,16 +108,21 @@ function buildEnvironment(ctx, W) {
       const zone = zoneAt(d);
       const Z = () => z0 - rng.r() * LEN;
       for (const p of all) p.begin(slot);
+      const fl = foamBy[slot]; fl.length = 0;
       const spire = (side, edge, rMin, rMax, hMin, hMax, spread, y0 = floor - 4, set = warm, tints = cream) => {
         const r = rng.range(rMin, rMax), h = rng.range(hMin, hMax);
         const x = side * (edge + r * 1.1 + rng.range(0, spread));
-        rng.pick(set).add(x, y0, Z(), r, h, r, 0, rng.range(0, 6.28), 0, rng.pick(tints));
+        const pool = rng.pick(set), z = Z();
+        pool.add(x, y0, z, r, h, r, 0, rng.range(0, 6.28), 0, rng.pick(tints));
+        if (y0 < floor) fl.push(x, z, 0, 0, r * 0.9);
       };
       const coolSpire = (side, edge, rMin, rMax, hMin, hMax, spread) => spire(side, edge, rMin, rMax, hMin, hMax, spread, floor - 4, cool, coolTints);
       const reef = (n) => {
         for (let i = 0; i < n; i++) {
           const r = rng.range(2.5, 9), s = rng.sign();
-          pools.reefs.add(s * rng.range(30, 170), floor + r * 0.08, Z(), r, r * 0.8, r * 1.1, rng.r(), rng.r() * 6, 0, rng.pick(cream));
+          const x = s * rng.range(30, 170), z = Z();
+          pools.reefs.add(x, floor + r * 0.08, z, r, r * 0.8, r * 1.1, rng.r(), rng.r() * 6, 0, rng.pick(cream));
+          fl.push(x, z, 0, 0, r * 1.05);
         }
       };
       const far = (n, xMin = 520, xMax = 1300) => {
@@ -139,6 +152,7 @@ function buildEnvironment(ctx, W) {
           const y = floor + rng.range(-0.2, 0.2);
           pools.barges.add(x, y, z, s, s, s, 0, yaw, 0, rng.pick(barTints));
           pools.bargeLights.add(x, y, z, s, s, s, 0, yaw, 0);
+          fl.push(x, z, Math.sin(yaw) * 13 * s, Math.cos(yaw) * 13 * s, 9.5 * s);
         }
       };
       const arch = (n, xMin, xMax, set, sMin = 1.6, sMax = 3.4) => {
@@ -146,6 +160,8 @@ function buildEnvironment(ctx, W) {
           const sc = rng.range(sMin, sMax), x = rng.sign() * rng.range(xMin, xMax), z = Z(), y = floor - 6 * sc, yaw = rng.range(-0.5, 0.5);
           set.add(x, y, z, sc, sc, sc, 0, yaw, 0, rng.pick(cream));
           pools.hoops.add(x, y, z, sc, sc, sc, 0, yaw, 0);
+          const fx = Math.cos(yaw) * 15.9 * sc, fz = -Math.sin(yaw) * 15.9 * sc;
+          fl.push(x + fx, z + fz, 0, 0, 6.8 * sc, x - fx, z - fz, 0, 0, 6.8 * sc);
         }
       };
 
@@ -181,10 +197,50 @@ function buildEnvironment(ctx, W) {
     },
   });
 
+  // ------------------------------------------------ foam sources: the nearest things standing in the water, faded in by distance
+  const NEAR = 25, nearD = new Float32Array(NEAR), nearV = new Float32Array(NEAR * 6);
+  let nNear = 0;
+  const offer = (cx, cz, x, z, ax, az, r) => {
+    const dx = x - cx, dz = z - cz;
+    if (dz > 60 || dz < -1100) return;
+    const d = Math.hypot(dx, dz) - r;
+    if (nNear === NEAR && d >= nearD[NEAR - 1]) return;
+    let i = nNear < NEAR ? nNear++ : NEAR - 1;
+    while (i > 0 && nearD[i - 1] > d) { nearD[i] = nearD[i - 1]; nearV.copyWithin(i * 6, (i - 1) * 6, i * 6); i--; }
+    nearD[i] = d; nearV[i * 6] = x; nearV[i * 6 + 1] = z; nearV[i * 6 + 2] = ax; nearV[i * 6 + 3] = az; nearV[i * 6 + 4] = r;
+  };
+  function updateFoam(ctx) {
+    const cam = ctx.camera.position, cx = cam.x, cz = cam.z;
+    nNear = 0;
+    for (const fl of foamBy) for (let i = 0; i < fl.length; i += 5) offer(cx, cz, fl[i], fl[i + 1], fl[i + 2], fl[i + 3], fl[i + 4]);
+    // things the script placed: gun barges, spires and arches
+    const dyn = (list) => {
+      for (const o of list) {
+        if (!o.alive) continue;
+        const px = o.position.x, pz = o.position.z;
+        if (o.type === 'barge') { const a = o.group.rotation.y; offer(cx, cz, px, pz, Math.sin(a) * 13, Math.cos(a) * 13, 9.5); }
+        else if (o.type === 'stack') offer(cx, cz, px, pz, 0, 0, 7);
+        else if (o.type === 'arch' || o.type === 'lowArch') { const R = o.type === 'arch' ? 17 : 16; offer(cx, cz, px + R, pz, 0, 0, 8); offer(cx, cz, px - R, pz, 0, 0, 8); }
+      }
+    };
+    dyn(ctx.groups.obstacles); dyn(W.decor);
+    // the farthest kept source sets the fade so a newcomer always enters at zero strength
+    const far = nNear === NEAR ? nearD[NEAR - 1] : 900, n = Math.min(nNear, SRC_MAX);
+    ocean.clearSources();
+    for (let i = 0; i < n; i++) {
+      const d = Math.max(nearD[i], 0), t = Math.min(1, Math.max(0, (far - d) / (far * 0.45 + 1)));
+      ocean.addSource(nearV[i * 6], nearV[i * 6 + 1], nearV[i * 6 + 2], nearV[i * 6 + 3], nearV[i * 6 + 4], t * t * (3 - 2 * t));
+    }
+  }
+
   return {
     update(dt, ctx, force) {
       const rz = ctx.rail.position.z;
       stream.update(rz, 3, !!force);
+      const water = ctx.render?.tier?.water ?? 2, sk = ctx.feel.p.sky;
+      W.sky.applyFeel(sk, 'thalassa', water);
+      ocean.applyFeel(sk, 'thalassa', water);
+      if (water > 1) updateFoam(ctx); else ocean.clearSources();
       ocean.update(W.time, ctx.rail.position, floor);
       dust.update(dt, ctx);
     },

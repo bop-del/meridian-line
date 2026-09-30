@@ -1,6 +1,6 @@
 // Measures the fraction of near-black pixels in the central play area across many frames on the real GPU (Metal).
 // Usage: node tools/gpuflicker.mjs <baseUrl, e.g. http://localhost:5173> <mode1,mode2,...> [frames=10] [extraQuery]
-// Env: LEVEL=0|1|2, JUMP=<rail distance to skip to>. Needs the dev server running.
+// Env: LEVEL=0|1|2 (default 2, the bright Thalassa Coast, the black pixel threshold does not suit the dark Foundry), JUMP=<rail distance to skip to>. Needs the dev server running.
 import puppeteer from 'puppeteer-core';
 const [base, modes = 'rt2,both,off', frames = '10', extra = ''] = process.argv.slice(2);
 const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: 'new',
@@ -19,7 +19,7 @@ async function blackFrac(png64) {
 for (const mode of modes.split(',')) {
   const page = await browser.newPage(); const errs = [];
   page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); }); page.on('pageerror', (e) => errs.push('PAGEERR ' + e.message));
-  await page.goto(`${base.replace(/\/$/, '')}/?autostart=1&level=${process.env.LEVEL || 0}&msaa=${mode}${extra}`, { waitUntil: 'load' });
+  await page.goto(`${base.replace(/\/$/, '')}/?autostart=1&level=${process.env.LEVEL || 2}&msaa=${mode}${extra}`, { waitUntil: 'load' });
   await new Promise(r => setTimeout(r, 4000));
   if (process.env.JUMP) await page.evaluate((d) => { __ctx.state.god = true; __ctx.rail.position.z = -d; }, +process.env.JUMP);
   if (process.env.JUMP) await new Promise(r => setTimeout(r, 6000));

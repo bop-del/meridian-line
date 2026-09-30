@@ -22,6 +22,9 @@
 import { registerHandling } from '../feel/handling.js';
 import { registerImpact } from '../feel/impact.js';
 import { registerSpeed } from '../feel/speed.js';
+import { registerLook } from '../feel/look.js';
+import { registerSky } from '../feel/sky.js';
+import { registerAtmosphere } from '../feel/atmosphere.js';
 
 const listeners = new Set();
 
@@ -39,11 +42,14 @@ export const feel = {
     }
   },
 
-  get(path) { const [g, k] = path.split('.'); return this.p[g]?.[k]; },
+  // only registered names count: a crafted path such as 'constructor.name' or '__proto__.x' must never reach an inherited property
+  has(g, k) { return Object.hasOwn(this.meta, g) && Object.hasOwn(this.meta[g], k); },
+
+  get(path) { const [g, k] = path.split('.'); return this.has(g, k) ? this.p[g][k] : undefined; },
 
   set(path, v) {
     const [g, k] = path.split('.');
-    if (!this.meta[g]?.[k]) return false;
+    if (!this.has(g, k)) return false;
     const m = this.meta[g][k];
     v = Number(v);
     if (!Number.isFinite(v)) return false;
@@ -159,6 +165,9 @@ export const feel = {
 registerHandling(feel);
 registerImpact(feel);
 registerSpeed(feel);
+registerLook(feel);
+registerSky(feel);
+registerAtmosphere(feel);
 
 // ?tune=1 only: restore saved values (share link first, then localStorage) and keep saving. Never runs on the normal path.
 export const FEEL_STORAGE_KEY = 'meridian-feel';
