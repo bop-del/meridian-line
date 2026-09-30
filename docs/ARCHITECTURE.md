@@ -149,6 +149,6 @@ Modules talk through `ctx.events`. Names are `domain:action`. The ones in use:
 
 ## Test hooks
 
-- URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?q=`, `?msaa=`, `?style=a|b|c` (music style, `?title=` is an alias), `?l3=a|b|c|d` (level 3 laser variants).
+- URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?q=`, `?msaa=`, `?style=a|b|c` (music style, `?title=` is an alias).
 - `window.__ctx` is the context above. `__ctx.game.advance(seconds)` steps the simulation without rendering.
 - `tools/` contains puppeteer-core scripts that drive system Chrome; see the README.
