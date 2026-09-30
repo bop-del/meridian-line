@@ -27,7 +27,6 @@ export class PlasmaOrb extends Enemy {
     const p = ctx.player.position, rr = this.radius + ctx.player.radius * 0.8;
     if (this.sweepDist2(ctx, dt) < rr * rr) {
       ctx.fx?.explosion?.(this.position, { scale: 2, color: 0xd04dff });
-      ctx.fx?.shake?.(0.7, 0.3);
       if (!ctx.player.invulnerable) ctx.player.takeDamage?.(this.damage * diff(ctx).enemyDamage, this);
       this.destroy();
     } else if (this.life <= 0 || this.position.z > p.z + 30 || this.position.y < p.y - 90) this.destroy();

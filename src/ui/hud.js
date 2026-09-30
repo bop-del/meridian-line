@@ -3,6 +3,7 @@
 // beside it on the left edge, bombs and pulse level under that block; transponder link readout top-right;
 // comm and readout strips bottom-right (see comm.js); hint line bottom-centre.
 import { h, setText, setClass, fmt, safeAnimate } from './dom.js';
+import { hitDirection } from '../fx/impact.js';
 
 const SEGMENTS = 20;
 const MAX_LOCKS = 6;
@@ -14,6 +15,7 @@ const CHAIN_WINDOW = 2.4;
 const TOAST_LIFE = 1.5;
 const TOAST_DEDUPE = 1.5;     // same text inside this window shows once
 const LINK_BARS = 5;
+const VIGNETTE_BASE = 'radial-gradient(ellipse at center, rgba(255,0,0,0) 40%, rgba(255,20,20,0.5) 100%)';   // softer than .hud-vignette in style.css, the post pass adds its own edge pulse
 
 // hexagon frame: six edges with small gaps at the corners, plus a faint inner hexagon that counter-rotates
 const HEX_PTS = (r) => Array.from({ length: 6 }, (_, i) => { const a = (Math.PI / 3) * i - Math.PI / 2; return (Math.cos(a) * r).toFixed(2) + ',' + (Math.sin(a) * r).toFixed(2); }).join(' ');
@@ -214,12 +216,18 @@ export class Hud {
 
   onDamage(p) {
     const a = Math.min(1, 0.35 + (p?.amount || 10) / 40);
+    // directional marker: a red glow on the screen edge on the side the hit came from, layered over the ordinary vignette
+    const dirK = this.ctx.feel?.p.impact.hudDamageDir ?? 0;
+    const d = hitDirection(p?.source, this.ctx.player?.position, this._hd ??= { x: 0, y: 0, has: false });
+    this.vignette.style.background = d.has && dirK > 0
+      ? `radial-gradient(ellipse 60% 60% at ${(50 + d.x * 58).toFixed(1)}% ${(50 - d.y * 58).toFixed(1)}%, rgba(255,60,30,${(0.95 * dirK).toFixed(2)}) 0%, rgba(255,0,0,0) 100%), ${VIGNETTE_BASE}`
+      : VIGNETTE_BASE;
     safeAnimate(this.vignette, [{ opacity: a }, { opacity: 0 }], { duration: 650, easing: 'ease-out' });
     this.hitFlicker = 0.55;
     safeAnimate(this.blEl, [
       { transform: 'translate(0,0)' }, { transform: 'translate(-6px,3px)' }, { transform: 'translate(5px,-2px)' },
       { transform: 'translate(-3px,1px)' }, { transform: 'translate(0,0)' }], { duration: 300 });
-    this.screenFlash('rgba(255,40,40,0.9)', Math.min(0.4, 0.15 + (p?.amount || 10) / 100), 220);
+    this.screenFlash('rgba(255,40,40,0.9)', Math.min(0.12, 0.04 + (p?.amount || 10) / 300), 180);
   }
 
   onHit() {
@@ -531,6 +539,12 @@ export class Hud {
     const low = frac < 0.3 && frac > 0 && s.phase === 'playing';
     setClass(this.lowhp, 'on', low);
     setClass(this.hpBar, 'low', low);
+    // the edge glow follows the same heartbeat as the post pass (src/fx/impact.js) instead of its own CSS pulse
+    const imp = this.ctx.impact;
+    if (low && imp) {
+      const o = (0.12 + 0.75 * imp.lowBeat * (0.4 + 0.6 * imp.lowSev)).toFixed(2);
+      if (this._lowO !== o) { this._lowO = o; this.lowhp.style.animation = 'none'; this.lowhp.style.opacity = o; }
+    } else if (this._lowO !== undefined) { this._lowO = undefined; this.lowhp.style.animation = ''; this.lowhp.style.opacity = ''; }
     if (low) {
       this.alarmT -= dt;
       if (this.alarmT <= 0) { this.alarmT = frac < 0.15 ? 0.7 : 1.15; this.ctx.audio?.sfx?.('alarm', { volume: 0.5 }); }
@@ -611,8 +625,16 @@ export class Hud {
     // one ring at the aim point (where the lock scan happens); falls back to the near point
     const pt = alive ? this.project(pl.reticleFar || pl.reticle) : null;
     if (pt) {
+      // hit / kill / lock pulse from the impact module: the ring grows and brightens, then settles
+      const rp = this.ctx.impact?.reticlePulse || 0, F = this.ctx.feel?.p.impact;
+      const sc = F ? 1 + rp * F.reticlePulseScale : 1;
       this.ret.style.opacity = '1';
-      this.ret.style.transform = `translate3d(${pt.x.toFixed(1)}px,${pt.y.toFixed(1)}px,0)`;
+      this.ret.style.transform = `translate3d(${pt.x.toFixed(1)}px,${pt.y.toFixed(1)}px,0) scale(${sc.toFixed(3)})`;
+      const rq = F ? Math.round(rp * 24) : 0;
+      if (this._rq !== rq) {
+        this._rq = rq;
+        this.ret.style.filter = rq ? `brightness(${(1 + (rq / 24) * F.reticlePulseBright).toFixed(2)}) drop-shadow(0 0 ${(rq / 24 * 5).toFixed(1)}px rgba(200,255,250,0.9))` : '';
+      }
       this.hitMarker.style.left = pt.x.toFixed(1) + 'px';
       this.hitMarker.style.top = pt.y.toFixed(1) + 'px';
     } else this.ret.style.opacity = '0';
@@ -643,7 +665,12 @@ export class Hud {
         el._vis = true;
         if (this.lockOwners[n] !== e) {
           this.lockOwners[n] = e;
-          safeAnimate(el._in, [{ transform: 'scale(2.2) rotate(45deg)', opacity: 0 }, { transform: 'scale(1) rotate(0deg)', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.2,.9,.3,1.2)' });
+          // the frame snaps in from large, overshoots slightly small and settles, bright at first: a clear "tick" per lock
+          safeAnimate(el._in, [
+            { transform: 'scale(2.6) rotate(70deg)', opacity: 0, filter: 'brightness(3)' },
+            { transform: 'scale(0.86) rotate(-4deg)', opacity: 1, filter: 'brightness(2.2)', offset: 0.6 },
+            { transform: 'scale(1) rotate(0deg)', opacity: 1, filter: 'brightness(1)' }], { duration: 240, easing: 'cubic-bezier(.2,.9,.3,1)' });
+          safeAnimate(el._num, [{ transform: 'scale(1.9)' }, { transform: 'scale(1)' }], { duration: 220, easing: 'cubic-bezier(.2,.9,.3,1.2)' });
         }
         n++;
       }

@@ -30,6 +30,7 @@ const QUALITY = [
 export const render = {
   ctx: null, composer: null, bloom: null, post: null, mount: null,
   quality: 0, adaptive: true, avgMs: 16, _slow: 0, _fast: 0, _sinceChange: 0,
+  _pendingQ: -1, _stepFrom: null, _dropLock: 0, _lockLen: 45,
   look: { bloom: 0.55, exposure: 1.0, vignette: 0.35, tint: new THREE.Color(1, 1, 1) },
   _tgt: { bloom: 0.55, exposure: 1.0, vignette: 0.35, tint: new THREE.Color(1, 1, 1) },
   _extra: { chroma: null, grain: null, blur: null, damage: null, flash: null },
@@ -86,6 +87,8 @@ export const render = {
     this.quality = q;
     const Q = QUALITY[q];
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, Q.pr));
+    // ?nopost=1 (diagnosis): no composer at all, the scene is drawn straight to the canvas
+    if (new URLSearchParams(location.search).has('nopost')) { this.composer = null; this.bloom = null; this.post = null; return; }
     try {
       // MSAA on the composer targets renders large black blocks on Apple GPUs (Metal via ANGLE), so the default is no MSAA
       // plus an FXAA pass for edges. ?msaa=rt2 and ?msaa=both stay available for comparison (tools/gpuflicker.mjs).
@@ -202,9 +205,14 @@ export const render = {
       const u = this.post.uniforms, e = this._extra;
       u.uTime.value = this._time;
       u.uVignette.value = L.vignette + this._damagePulse * 0.15;
-      u.uChroma.value = e.chroma ?? (0.0007 + this._kick * 0.006 + this._boostSm * 0.0028);
+      // speed effects come from speedfx (blur amount, extra chroma) and are tunable in feel.p.speed; the hit kick stays here.
+      // Quality tiers: 3 taps from tier 3, no speed blur from tier 4 (the effects drop before bloom does).
+      const sfx = ctx.speedfx, sp = ctx.feel?.p?.speed, q = this.quality;
+      u.uChroma.value = (e.chroma ?? (0.0007 + this._kick * 0.006)) + (sfx ? sfx.chroma : this._boostSm * 0.0028);
       u.uGrain.value = e.grain ?? 0.03;
-      u.uBlur.value = e.blur ?? this._blurSm * 0.85;
+      u.uBlur.value = e.blur ?? (q >= 4 ? 0 : sfx ? sfx.blur : this._blurSm * 0.85);
+      u.uTaps.value = q >= 3 ? 3 : 6;
+      if (sp) { u.uBlurReach.value = sp.blurStrength; u.uBlurClear.value = sp.blurClear; }
       u.uDamage.value = e.damage ?? clamp(this._damagePulse * 0.85 + this._lowHp, 0, 1);
       u.uFlash.value = e.flash ?? clamp(flashAmt, 0, 1);
       u.uFlashColor.value.copy(f.color);
@@ -220,6 +228,12 @@ export const render = {
   render(dt = 1 / 60) {
     const ctx = this.ctx;
     if (!ctx) return;
+    // Quality changes resize the canvas, which clears it. They are requested from _adapt (after the draw) and applied here,
+    // before drawing, so the frame that follows a resize is never presented blank.
+    if (this._pendingQ >= 0) {
+      const q = this._pendingQ, up = q < this.quality; this._pendingQ = -1;
+      if (q !== this.quality) { this.setQuality(q); if (up) this._sinceChange = -6; }
+    }
     if (!this._updated) this.update(Math.min(dt, 0.1), ctx);
     this._updated = false;
     const { renderer, scene, camera } = ctx;
@@ -258,16 +272,27 @@ export const render = {
     if (ms > 200 || ms <= 0) return; // ignore tab switches and pauses
     this.avgMs += (ms - this.avgMs) * 0.05;
     this._sinceChange += dt;
+    if (this._dropLock > 0) this._dropLock -= dt;
     if (this._sinceChange < 2.5) return;
-    if (this.avgMs > 24 && this.quality < QUALITY.length - 1) {
+    // A step down that did not make frames clearly faster means the frame rate is capped from outside (30 Hz display, browser
+    // energy saver), not limited by the GPU. Undo it and stop dropping for a while, the lock doubles on each repeat.
+    if (this._stepFrom) {
+      const f = this._stepFrom; this._stepFrom = null;
+      if (this.quality === f.q + 1 && this.avgMs > f.ms * 0.92) {
+        this._pendingQ = f.q; this._dropLock = this._lockLen; this._lockLen = Math.min(600, this._lockLen * 2);
+        return;
+      }
+    }
+    if (this.avgMs > 24 && this.quality < QUALITY.length - 1 && this._dropLock <= 0) {
       this._slow += dt;
-      if (this._slow > 1.2) { this.setQuality(this.quality + 1); }
+      if (this._slow > 1.2) { this._stepFrom = { q: this.quality, ms: this.avgMs }; this._pendingQ = this.quality + 1; this._slow = 0; this._sinceChange = 0; }
     } else { this._slow = 0; }
     if (this.avgMs < 12.5 && this.quality > 0) {
       this._fast += dt;
-      if (this._fast > 12) { this.setQuality(this.quality - 1); this._sinceChange = -6; }
+      if (this._fast > 12) { this._pendingQ = this.quality - 1; this._fast = 0; }
     } else { this._fast = 0; }
   },
+
 
   /** small stats blob for debugging */
   stats() {

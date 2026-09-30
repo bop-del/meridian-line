@@ -291,8 +291,7 @@ export const projectiles = {
     ctx.fx?.shockwave?.(pos, { radius: R, color: 0xffd58a });
     ctx.fx?.explosion?.(pos, { scale: 3.2, color: 0xffd28a, big: true });
     ctx.fx?.flash?.('#fff1c8', 0.55, 0.3);
-    ctx.fx?.shake?.(0.9, 0.5);
-    ctx.cameraRig?.addTrauma?.(0.85);
+    // the camera shake and the hit-stop come from bomb:detonate (src/fx/impact.js)
     ctx.audio?.sfx?.('bomb', { position: pos });
     ctx.events.emit('bomb:detonate', { position: pos.clone() });
   },
@@ -392,6 +391,7 @@ export const projectiles = {
   writeInstances(ctx) {
     let nb = 0, no = 0, nt = 0;
     const t = this.time;
+    const popK = ctx.feel?.p.impact.enemyShotPop ?? 0;   // enemy shots start larger and settle in the first tenth of a second
     const bc = this.boltCore, bg = this.boltGlow, bs = this.boltShell, oc = this.orbCore, og = this.orbGlow, os = this.orbShell, tm = this.trailMesh;
     const draw = (s) => {
       if (!s.alive) return;
@@ -400,8 +400,9 @@ export const projectiles = {
         _v.copy(s.velocity).multiplyScalar(1 / sp);
         _q.setFromUnitVectors(Z, _v);
         const isPlayer = s.owner === 'player';
-        const len = (isPlayer ? 2.1 : 1.8) * s.size;
-        const rad = (isPlayer ? 0.17 : 0.2) * s.size;
+        const pop = isPlayer ? 1 : 1 + popK * Math.max(0, 1 - s.age * 10);
+        const len = (isPlayer ? 2.1 : 1.8) * s.size * pop;
+        const rad = (isPlayer ? 0.17 : 0.2) * s.size * pop;
         _s.set(rad, rad, len);
         _m.compose(s.position, _q, _s);
         bc.setMatrixAt(nb, _m); bc.setColorAt(nb, s.color);
@@ -415,7 +416,8 @@ export const projectiles = {
       } else {
         const pulse = 1 + Math.sin(t * 22 + s.pulse) * 0.1;
         // visual radius is capped so heavy boss shells do not bloom into a screen-filling disc (the hit radius is unchanged)
-        const r = Math.min(s.reflected ? 1.4 : 2.6, s.radius * (s.kind === 'homing' ? 0.7 : 0.85) * pulse * s.size);
+        const pop = s.owner === 'enemy' ? 1 + popK * Math.max(0, 1 - s.age * 10) : 1;
+        const r = Math.min(s.reflected ? 1.4 : 2.6, s.radius * (s.kind === 'homing' ? 0.7 : 0.85) * pulse * s.size) * pop;
         _s.set(r, r, r);
         _q.identity();
         _m.compose(s.position, _q, _s);

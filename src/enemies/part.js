@@ -59,9 +59,9 @@ export class Part {
     }
     this.hp -= raw ? amount : amount * this.armor;
     this.flashT = 1;
-    ctx.fx?.hitSpark?.(this.position);
+    ctx.fx?.hitSpark?.(info?.position ?? this.position, undefined, Math.min(1.6, 0.8 + amount * 0.08));
     ctx.audio?.sfx?.('bossHit', { position: this.position });
-    if (raw) { ctx.fx?.explosion?.(this.position, { scale: this.explScale * 0.8, color: 0xffe0a0 }); ctx.fx?.shake?.(0.9, 0.35); ctx.events.emit('fx:hitstop', { duration: 0.07 }); }
+    if (raw) { ctx.fx?.explosion?.(this.position, { scale: this.explScale * 0.8, color: 0xffe0a0 }); ctx.fx?.shake?.(0.6, 0.3); ctx.events.emit('fx:hitstop', { duration: 0.07 }); }
     this.owner.onPartHit?.(this, amount);
     if (this.hp <= 0) this.die(ctx);
   }
@@ -71,7 +71,7 @@ export class Part {
     this.hp = 0;
     ctx.fx?.explosion?.(this.position, { scale: this.explScale, big: this.explScale > 3, color: this.explColor });
     ctx.fx?.debris?.(this.position, 10, this.debrisColor);
-    ctx.fx?.shake?.(0.5, 0.3);
+    ctx.fx?.shake?.(0.3, 0.25);   // parts with points also shake through the enemy:killed event
     ctx.audio?.sfx?.('explosion', { position: this.position });
     if (this.points) ctx.events.emit('enemy:killed', { enemy: this, points: this.points, position: this.position.clone() });
     this.owner.onPartDestroyed?.(this);

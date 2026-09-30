@@ -72,7 +72,7 @@ export class Mine extends Enemy {
     const pos = this.position, d = diff(ctx);
     ctx.fx?.explosion?.(pos, { scale: 3.4, color: 0xff5522, big: true });
     ctx.fx?.shockwave?.(pos, { radius: BLAST_RADIUS, color: 0xff6633 });
-    ctx.fx?.shake?.(0.9, 0.4);
+    ctx.fx?.shake?.(0.75, 0.45, 'blast');
     ctx.audio?.sfx?.('bigExplosion', { position: pos });
     const p = ctx.player.position;
     if (p.distanceTo(pos) < BLAST_RADIUS && !ctx.player.invulnerable) ctx.player.takeDamage?.(this.damage * d.enemyDamage, this);

@@ -46,6 +46,7 @@ export class Dart extends Enemy {
       if (this.lockT >= this.lockTime && this.position.z < p.z - 30) {
         this.state = 'dive'; this.setGlow(this.lockGlow, 0);
         ctx.audio?.sfx?.('whoosh', { position: this.position });
+        ctx.fx?.fireFlare?.(this.position, 0xff3a2a, 1.8);   // the dive commits: flash at the nose
         this.vel.copy(leadDir(ctx, this.position, this.speed, 0.015, 0.5, _d)).multiplyScalar(this.speed);
       }
     } else {
@@ -71,7 +72,6 @@ export class Dart extends Enemy {
   impact(ctx) {
     ctx.fx?.explosion?.(this.position, { scale: 1.6, color: 0xff5522 });
     ctx.fx?.sparks?.(this.position, null, 14);
-    ctx.fx?.shake?.(0.6, 0.25);
     if (!ctx.player.invulnerable) ctx.player.takeDamage?.(this.damage * diff(ctx).enemyDamage, this);
     this.destroy();
   }

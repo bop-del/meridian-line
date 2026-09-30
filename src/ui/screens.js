@@ -21,7 +21,7 @@ const CREDITS = [
   ['THE MERIDIAN REACH', 'r'], ['Thalassa Coast, the Cinder Belt, the Obsidian Foundry', 'n'],
   ['THE OPPOSITION', 'r'], ['The Halvane Dominion, and the Regent, patient to the last', 'n'],
   ['VISUAL EFFECTS', 'r'], ['Fire, glass, dust and light', 'n'],
-  ['MUSIC AND SOUND', 'r'], ['Every note and every beep is synthesized live', 'n'],
+  ['MUSIC AND SOUND', 'r'], ['Every note and every beep is synthesised live', 'n'],
   ['', 'gap'],
   ['BUILT WITH THREE.JS AND WEB AUDIO', 's'],
   ['NO ASSET FILES WERE USED', 's'],
@@ -374,6 +374,7 @@ export class Screens {
     this.button(d, menu, 'RESUME', () => this.doResume());
     this.button(d, menu, 'RESTART MISSION', () => { this.guard(); this.emit('ui:restart'); });
     this.button(d, menu, 'QUIT TO TITLE', () => { this.guard(); this.emit('ui:quitToTitle'); });
+    this.button(d, menu, 'FEEL TUNING', () => { this.guard(); this.emit('ui:tune'); });
     h('div', 'sep', 'AUDIO', menu);
     this.slider(d, menu, 'MASTER', 'master');
     this.slider(d, menu, 'MUSIC', 'music');

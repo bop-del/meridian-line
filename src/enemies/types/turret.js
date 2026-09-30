@@ -67,6 +67,10 @@ export class Turret extends Enemy {
         this.fireCd = 2.5 * this.fireScale;
       }
     } else if (inRange && this.fireCd <= 0) this.charge = 0.85;
-    if (!inRange && this.charge > 0) this.charge = 0;
+    if (!inRange && this.charge > 0) {   // player left the arc mid wind-up: clear the glow and the telegraph with it
+      this.charge = 0;
+      for (const t of this.tips) this.setGlow(t, 0);
+      this.lens.scale.setScalar(1);
+    }
   }
 }

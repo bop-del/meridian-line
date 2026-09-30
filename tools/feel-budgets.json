@@ -1,0 +1,58 @@
+{
+  "_comment": "Budgets for tools/feelbot.mjs, set to about twice the measured values of the default (`tight`) preset so a change that makes the feel sloppy fails. Times in seconds, angles in degrees, distances in world units.",
+  "lateral": {
+    "firstMoveFramesMax": 2,
+    "t90Max": 0.25,
+    "overshootPctMax": 5,
+    "reverseOvershootPctMax": 5,
+    "settleMax": 0.5,
+    "symmetryTol": 0.06
+  },
+  "vertical": {
+    "firstMoveFramesMax": 2,
+    "t90Max": 0.25,
+    "settleMax": 0.5
+  },
+  "attitude": {
+    "minBankDeg": 3,
+    "maxBankDeg": 75,
+    "zeroTolDeg": 0.25,
+    "settleMax": 1.2
+  },
+  "camera": {
+    "lagMax": 3.2,
+    "lagSettledMax": 0.08,
+    "minShipDist": 3.5,
+    "minUpY": 0.5,
+    "maxForwardZ": -0.5
+  },
+  "roll": {
+    "durationMin": 0.2,
+    "durationMax": 0.6,
+    "endTol": 1e-06
+  },
+  "boost": {
+    "reachFrac": 0.9,
+    "reachMax": 0.9,
+    "returnTolFrac": 0.03,
+    "returnMax": 2.0,
+    "fovReturnTolDeg": 0.3,
+    "fovReturnMax": 3.0
+  },
+  "brake": {
+    "reachFrac": 0.9,
+    "reachMax": 0.6,
+    "returnTolFrac": 0.03,
+    "returnMax": 1.5
+  },
+  "shake": {
+    "maxOffset": 2.0,
+    "maxRollDeg": 12,
+    "decayMax": 4.0,
+    "residual": 1e-05
+  },
+  "hitstop": {
+    "restoreMax": 1.5,
+    "stoppedTotalMax": 0.9
+  }
+}

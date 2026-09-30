@@ -44,7 +44,8 @@ The MUSIC STYLE selector (title screen, M key or the arrows, and the pause menu)
 - KILLS counter and combo multiplier during play, and a per-level results screen with a letter rank (S, A, B or C) from score against par, shield remaining, lives lost, time and escorts still flying
 - Three difficulties: easy, normal, hard
 - Synthesised soundtrack with layered intensity, three selectable music styles (each with its own title, level, boss and sting themes) and spatialised effects
-- Post-processing (bloom, grade, FXAA) with adaptive quality that lowers resolution on slow GPUs
+- Tuned handling: a snappy, banking ship with a spring-mounted chase camera that leans into turns, layered screen shake and hit-stop that make impacts land, a speed sense built from FOV kick, streaks and motion blur
+- Post-processing (bloom, grade, FXAA) with adaptive quality that lowers resolution on slow GPUs (and leaves it alone when the frame rate is capped by the display)
 
 ## The levels
 
@@ -67,14 +68,16 @@ The build uses relative asset paths (`base: './'`), so the contents of `dist/` c
 
 ## Project layout
 
-    src/core/       game loop and phases, input, rail, collision, camera rig
+    src/core/       game loop and phases, input, rail, collision, camera rig, the feel registry
+    src/feel/       the tunable feel values (handling, impact, speed) and their presets
+    src/dev/        the ?tune=1 tuning panel and the ?diag=1 black frame detector
     src/entities/   the player controller and projectiles
     src/world/      levels, sky, scenery, obstacles, pickups (shield cells, capacitor), level script runner
     src/enemies/    enemy types, formations, bosses
     src/allies/     escort AI (two pilots and a drone)
     src/models/     procedural ship models
     src/render/     renderer, bloom, grade pass
-    src/fx/         pooled particles, explosions, debris, speed streaks
+    src/fx/         pooled particles, explosions, debris, impact feedback (shake, hit-stop), speed streaks and FOV kick
     src/ui/         HUD, menus, comm box and text readouts, portraits
     src/audio/      synth, sound effects, sequenced music, the three music styles
     music-lab.html  audition every track of every music style
@@ -86,23 +89,26 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the modules fit togethe
 
 ## Testing helpers
 
-URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?style=a|b|c` (music style, also `?title=`). `window.__ctx` exposes the game context, and `__ctx.game.advance(seconds)` steps the simulation deterministically.
+URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?style=a|b|c` (music style, also `?title=`), `?tune=1` (live tuning panel, also opened by FEEL TUNING in the pause menu, see [docs/TUNING.md](docs/TUNING.md)), `?telemetry=1`, `?diag=1` (with `?report=<port>` it posts black frame reports to a local receiver on that port), `?nopost=1`, `?nooverlay=1`, `?q=0..5` (render quality), `?noadapt`. `window.__ctx` exposes the game context, and `__ctx.game.advance(seconds)` steps the simulation deterministically.
 
     node tools/shot.mjs <url> <out.png> [waitMs]      # screenshot plus console error check
     node tools/bossbot.mjs <port> <outDir> [0,1,2]    # aimbot through each boss to level complete
     node tools/flow.mjs <port> <outDir>               # title, pause, level complete, game over, restart
     node tools/gpushot.mjs <url> <out.png>            # screenshot on the real GPU (Metal) instead of the software renderer
     node tools/gpuflicker.mjs <baseUrl> off 10        # black-pixel fraction over many frames
+    node tools/feelbot.mjs <port> <outDir>            # scripted input, checks steering, camera, shake and hit-stop numbers
+    node tools/telemetry.mjs <url> <seconds>          # frame time report on the real GPU
 
 The tools launch Google Chrome from the macOS default path, or from the `CHROME_PATH` environment variable if it is set (for example `CHROME_PATH=/usr/bin/google-chrome node tools/flow.mjs 5173 out`), and expect a running dev server. Headless Chrome uses a software renderer and runs at a few frames per second, so the tests step simulated time instead of waiting.
 
 ## Status and known limits
 
 - Checked headless: no console errors, all three bosses beatable, full screen flow (title, pause, level complete, game over, restart).
-- Checked on an Apple silicon GPU (Metal): about 16.7 ms per frame and no rendering artefacts on any level or boss arena.
+- Checked on an Apple silicon GPU (Metal): about 16.7 ms per frame (locked to 60 Hz, the speed effects add about 0.3 ms) and no rendering artefacts on any level or boss arena.
 - Designed for desktop with a keyboard first. A gamepad is supported. There are no touch controls: on touch screens the title shows TAP TO START and a desktop notice, but the flight itself needs a keyboard or gamepad.
 - Needs a browser with WebGL2.
-- Not measured: steering feel across different setups, and how the audio sounds on different hardware.
+- Steering feel is tuned by hand with the `?tune=1` panel (the default is the `tight` preset). Not measured: feel across other input devices, and how the audio sounds on different hardware.
+- A browser that caps the frame rate to 30 fps (Chrome Energy Saver, macOS Low Power Mode, a 30 Hz display) makes the game run at 30 fps but it keeps full quality.
 - MSAA is off by default because it caused flickering black blocks on Apple GPUs. `?msaa=rt2` or `?msaa=both` turn it on for comparison.
 
 ## Licence

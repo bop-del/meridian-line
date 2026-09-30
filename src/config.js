@@ -1,8 +1,9 @@
 // Central tunables. Every module reads from here.
 export const config = {
   rail: {
+    // boostSpeed and brakeSpeed are fallbacks: the live values are feel.p.handling.boostSpeed / brakeSpeed (rail.boostSpeed)
     baseSpeed: 40, boostSpeed: 75, brakeSpeed: 22,
-    accel: 2.8,          // 1/s smoothing of rail speed towards its target
+    accel: 2.8,          // 1/s smoothing of rail speed towards its target (boost and brake ramps live in feel.p.handling)
     titleSpeed: 5,       // gentle drift behind the title screen
     titleMaxDistance: 90,
   },
@@ -12,12 +13,11 @@ export const config = {
     invulnerableAfterHit: 1.2, respawnInvulnerable: 3.0, fireRate: 7,
     radius: 1.6,          // broad radius (pickups, ram tests)
     hitRadius: 1.15,      // radius used against enemy shots and obstacles (fair hitbox)
-    // steering
-    speedX: 34, speedY: 24, accel: 12, reverseAccel: 20, decel: 9,
+    // steering and barrel roll: fallbacks only. The live values are feel.p.handling (src/feel/handling.js), which also holds
+    // banking, soft edges, surge and the double tap rules.
+    speedX: 32, speedY: 23, accel: 14, reverseAccel: 24, decel: 10,
     boostSteer: 0.88, brakeSteer: 1.12,
-    bankRoll: 0.72, bankPitch: 0.34, bankYaw: 0.16,
-    // barrel roll
-    rollTime: 0.5, rollCooldown: 0.2, rollKick: 20, doubleTapWindow: 0.26,
+    rollTime: 0.42, rollCooldown: 0.2, rollKick: 14,
     // boost
     boostDrain: 0.5, boostRegen: 0.28, boostRegenDelay: 0.6, boostLockout: 2.4, boostMinStart: 0.08,
     // weapons. Damage units: 1 = one twin-laser hit; enemy hp in enemies/types is expressed in these units.
@@ -32,8 +32,8 @@ export const config = {
     bombCooldown: 0.9, bombRadius: 58, bombDamage: 14, bombBossFactor: 0.3,
   },
   camera: {
+    // chase values are fallbacks: the live values are feel.p.handling.cam* (src/feel/handling.js)
     fov: 68, height: 3.4, distance: 12.5, followX: 0.58, followY: 0.5, lookX: 0.78, lookY: 0.7, lookAhead: 38,
-    boostFov: 15, brakeFov: -4, boostPull: 1.4, brakePull: 3.2, roll: 0.55, damping: 7.5,
     introTime: 2.8, shakeMax: 1.0,
   },
   difficulty: {

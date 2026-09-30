@@ -18,7 +18,7 @@ The game is an on-rails shooter, so most positions are expressed relative to an 
 
 ```
 ctx = {
-  THREE, config, events, state, input, rail, collision, cameraRig,
+  THREE, config, feel, events, state, input, rail, collision, cameraRig, impact, speedfx,
   player, projectiles, render, fx, audio, ui, world, enemies, allies,
   clock, timeScale,
   groups: { playerShots, enemyShots, enemies, obstacles, pickups, allies },
@@ -47,8 +47,11 @@ Every module is a singleton object with optional `init(ctx, uiRoot)`, `reset(ctx
 | player | `src/entities/player.js` | The Vanta Mk II controller: steering, barrel roll, boost and brake, twin laser, lock-on volley, bomb, damage and respawn. |
 | projectiles | `src/entities/projectiles.js` | Pooled player and enemy shots drawn with instanced meshes. |
 | collision | `src/core/collision.js` | Sphere and swept-segment tests between the groups, plus score and combo bookkeeping. |
-| cameraRig | `src/core/cameraRig.js` | Chase camera, boost field-of-view kick, shake, intro swoop, death cam, orbit shot for end screens. |
-| fx | `src/fx/fx.js` | Pooled particles, debris, shockwaves, trails, speed streaks, camera shake state. |
+| cameraRig | `src/core/cameraRig.js` | Chase camera on critically damped springs (look-ahead, swing, bank roll, boost push and brake pull), adds the shake from `impact` and the FOV kick from `speedfx`, intro swoop, death cam, orbit shot for end screens. |
+| impact | `src/fx/impact.js` | The only camera shake source (layered per-event curves with a soft cap), hit-stop rules with a time budget, damage and low-health feedback, reticle pulse. |
+| speedfx | `src/fx/speedfx.js` | Speed sensation: FOV kick with an onset punch, speed lines, space dust and a near parallax layer, the blur and chroma amounts read by the post pass. |
+| fx | `src/fx/fx.js` | Pooled particles, debris, shockwaves, trails, hit sparks and kill bursts. `fx.shake` forwards to `impact`. |
+| feel | `src/core/feel.js` | Registry of live tunable values (`feel.p.<group>.<key>`, groups in `src/feel/`), presets, and the overrides behind the `?tune=1` panel. |
 | ui | `src/ui/ui.js` | DOM overlay: HUD, comm box and text readouts, title, pause, level complete (letter rank), game over, victory screens. See below. |
 | audio | `src/audio/audio.js` | Sound effects, engine ambience and the music engine. |
 | render | `src/render/renderer.js` | WebGL renderer, bloom, a custom grade pass and FXAA, adaptive quality, screen flash. |
@@ -57,8 +60,8 @@ Per frame while **playing**, `game.js` runs in this order:
 
 1. `input.update`
 2. `rail`, `world`, `enemies`, `allies`, `player`, `projectiles`, `collision` (in that order)
-3. `projectiles.lateUpdate`, `cameraRig`, `fx`
-4. `ui`, `audio`
+3. `projectiles.lateUpdate`, `impact`, `speedfx`, `cameraRig`, `fx`
+4. `ui`, `audio`, then the dev modules when `?tune=1`, `?telemetry=1` or `?diag=1` loaded them
 5. `render.render`
 
 Other phases run a subset: the title screen advances rail, world, player, camera and fx; pause freezes the world and advances only UI, audio and render; game over, level complete and victory freeze the world but keep the orbiting camera and particles alive. `ctx.game.advance(seconds)` steps the same `step()` function without rendering, which makes the simulation deterministic for tests.
@@ -129,7 +132,7 @@ Modules talk through `ctx.events`. Names are `domain:action`. The ones in use:
 
 - **Speakers** (`SABLE`, `VEX`, `FERRO`, `PIP`, `LUMEN`, `CONTROL`, `REGENT`): VEX, FERRO and the enemy AI REGENT use a portrait comm box. PIP (the escort drone), LUMEN (ship systems), CONTROL (Meridian Control dispatch) and SABLE use the text readout strip: a monospace tag, a left rule and typed text, smaller and in the bottom-right corner.
 - **Hints** are short control tips: `ctx.ui.hint('FLIP: Q or E deflects incoming fire')` shows a small prompt line.
-- **HUD layout**: lives top-left, score and the KILLS counter top-centre with the boss bar under them, shield as a vertical bar on the left edge with boost beside it, bombs and pulse level below, the ESCORT INTEGRITY readout top-right (one row per escort in trouble, the bar is the time left), comm and readout strips bottom-right.
+- **HUD layout**: lives top-left, score and the KILLS counter top-centre with the boss bar under them, shield as a vertical bar on the left edge with boost beside it, bombs and pulse level below, the TRANSPONDER LINK readout top-right (one row per escort in trouble, the bar is the time left), comm and readout strips bottom-right.
 - **Letter rank** (`rankOf` in `src/ui/screens.js`): S, A, B or C from a composite of score against a per-level par, shield remaining, lives lost, time and escorts alive, shown as a large thin letter in a hairline frame.
 
 ## Rendering
@@ -152,3 +155,10 @@ Modules talk through `ctx.events`. Names are `domain:action`. The ones in use:
 - URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?q=`, `?msaa=`, `?style=a|b|c` (music style, `?title=` is an alias).
 - `window.__ctx` is the context above. `__ctx.game.advance(seconds)` steps the simulation without rendering.
 - `tools/` contains puppeteer-core scripts that drive system Chrome; see the README.
+
+## Feel tuning and diagnostics
+
+- The values that decide how the game feels (steering, camera, shake, hit-stop, speed effects) live in the `feel` registry, one group per file in `src/feel/`. Code reads `feel.p.<group>.<key>` every frame. `?tune=1` (or the FEEL TUNING entry in the pause menu) opens a panel with a slider per value, presets and a copy button. See [TUNING.md](TUNING.md).
+- `?telemetry=1` records frame time, camera lag and input latency (`window.__telemetry`). `tools/feelbot.mjs` drives scripted input and checks the numbers against `tools/feel-budgets.json`.
+- `?diag=1` counts frames that came out black on the real display, `?nopost=1` skips the post chain and `?nooverlay=1` removes the page overlays, to isolate rendering problems.
+- Adaptive quality changes are requested after a frame and applied before the next draw (a resize clears the canvas). A step down that does not speed frames up is undone and locked out for a while, because a 30 Hz display or browser energy saver caps the frame rate without the GPU being the limit.

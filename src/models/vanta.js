@@ -16,6 +16,7 @@
 import * as THREE from 'three';
 import { latheZ, canvasTex, glowTexture, scorchTexture, hexCss, mixHex, mergeGeos } from './modelUtils.js';
 import { HULLS } from './hulls.js';
+import { feel } from '../core/feel.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
@@ -123,6 +124,19 @@ function flameGeometry() {
   _flameGeo = g; return g;
 }
 
+// Soft ring used by the air brake flare: a thin bright band at about 55 percent of the half size.
+let _ringTex = null;
+function ringTexture() {
+  if (_ringTex) return _ringTex;
+  _ringTex = canvasTex(128, 128, (g, w, h) => {
+    const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+    gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.36, 'rgba(255,255,255,0.05)'); gr.addColorStop(0.52, 'rgba(255,255,255,0.9)');
+    gr.addColorStop(0.6, 'rgba(255,255,255,0.35)'); gr.addColorStop(0.8, 'rgba(255,255,255,0.06)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  }, { srgb: false, aniso: 1 });
+  return _ringTex;
+}
+
 // Engine shroud: dark flared bell with a dark throat cap, plus an amber rim ring. Built around local z = 0 (base) to z = len.
 function shroudGeos(r, len) {
   const prof = [[0.94, 0], [1.0, 0.18], [1.1, 0.72], [1.14, 1.0], [1.03, 1.0], [0.97, 0.78], [0.9, 0.16], [0.84, 0]].map(([k, a]) => [k * r, a * len]);
@@ -218,6 +232,17 @@ export function createVanta(opts = {}) {
     flames.push(fg); engines.push(g);
   });
 
+  // air brake flare: an amber ring that opens around the main engine while braking (and pulses on brake onset)
+  const flareMat = track(new THREE.MeshBasicMaterial({ map: ringTexture(), color: new THREE.Color(P.accent).multiplyScalar(1.7), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+  const flarePlane = track(new THREE.PlaneGeometry(1, 1));
+  const flares = [];
+  for (const me of spec.engines) {
+    if (me.kind !== 'main') continue;
+    const m = new THREE.Mesh(flarePlane, flareMat);
+    m.name = 'brakeFlare'; m.renderOrder = 7; m.visible = false; m.frustumCulled = false;
+    m.position.set(me.x, me.y, me.z + me.len + 0.04); m.userData.r = me.r; model.add(m); flares.push(m);
+  }
+
   // anchors
   const mkAnchor = (x, y, z) => { const o = new THREE.Object3D(); o.position.set(x, y, z); model.add(o); return o; };
   const mainEng = spec.engines.filter((e) => e.kind === 'main'), ionEng = spec.engines.filter((e) => e.kind === 'ion');
@@ -251,7 +276,7 @@ export function createVanta(opts = {}) {
   });
 
   // state
-  const state = { boost: 0, brake: 0, damage: 0, pitch: 0, roll: 0, yaw: 0, spin: 0, boostS: 0, brakeS: 0, flick: 0, time: Math.random() * 10, lastUpdate: 0, lastTick: 0 };
+  const state = { boost: 0, brake: 0, damage: 0, pitch: 0, roll: 0, yaw: 0, spin: 0, boostS: 0, brakeS: 0, flick: 0, time: Math.random() * 10, lastUpdate: 0, lastTick: 0, flash: 0, brakePulse: 0, armBoost: true, armBrake: true };
   const _c = new THREE.Color();
   const white = new THREE.Color(1, 1, 1);
 
@@ -268,12 +293,13 @@ export function createVanta(opts = {}) {
     for (const s of shrouds) s.scale.set(k, k, 1 + 0.12 * bs - 0.08 * brs);
   }
   function applyFlames(bs, brs, t) {
-    const len = (1.0 + 1.2 * bs - 0.55 * brs) * (1 - 0.35 * state.flick);
-    const wid = 0.34 * (1 - 0.12 * bs + 0.12 * brs);
+    const sp = feel.p.speed, fl = state.flash * sp.boostFlash;
+    const len = (1.0 + sp.flameBoost * bs - sp.flameBrake * brs + 0.7 * fl) * (1 - 0.35 * state.flick);
+    const wid = 0.34 * (1 - 0.12 * bs + 0.12 * brs + 0.35 * fl);
     const al = 1 - 0.5 * state.flick;
     mainOuter.uniforms.uLen.value = len * 1.4; mainOuter.uniforms.uWidth.value = wid * 1.0;
     mainInner.uniforms.uLen.value = len * 0.8; mainInner.uniforms.uWidth.value = wid * 0.5;
-    ionOuter.uniforms.uLen.value = (0.7 + 1.1 * bs - 0.3 * brs) * (1 - 0.35 * state.flick); ionOuter.uniforms.uWidth.value = 0.1 * (1 + 0.3 * bs);
+    ionOuter.uniforms.uLen.value = (0.7 + 1.1 * bs - 0.3 * brs + 0.5 * fl) * (1 - 0.35 * state.flick); ionOuter.uniforms.uWidth.value = 0.1 * (1 + 0.3 * bs);
     ionInner.uniforms.uLen.value = ionOuter.uniforms.uLen.value * 0.6; ionInner.uniforms.uWidth.value = 0.05 * (1 + 0.3 * bs);
     for (const m of [mainOuter, mainInner, ionOuter, ionInner]) { m.uniforms.uTime.value = t; m.uniforms.uAlpha.value = al; }
     // main engine: amber at idle, teal white when boosting
@@ -282,11 +308,20 @@ export function createVanta(opts = {}) {
     mainInner.uniforms.uCore.value.set(P.flame).lerp(_c.set(P.boostCore), bs);
     mainInner.uniforms.uEdge.value.set(P.flame).lerp(_c.set(P.boostCore), bs);
     glowSprites.forEach((g, i) => {
-      const k = g.base * (1 + bs * 0.35) + 0.04 * Math.sin(t * 40 + i);
+      const k = g.base * (1 + bs * 0.35 + 1.1 * fl) + 0.04 * Math.sin(t * 40 + i);
       g.spr.scale.set(k, k, 1);
-      g.spr.material.color.set(g.main ? P.flame : P.ion).lerp(_c.set(g.main ? P.boostCore : 0xffffff), bs * 0.5).multiplyScalar(0.38);
+      g.spr.material.color.set(g.main ? P.flame : P.ion).lerp(_c.set(g.main ? P.boostCore : 0xffffff), bs * 0.5).multiplyScalar(0.38 * (1 + 1.6 * fl));
     });
-    if (light) { light.intensity = 1.1 + bs * 5 + Math.sin(t * 45) * 0.2; light.color.set(P.flame).lerp(_c.set(P.boostEdge), bs); }
+    if (light) { light.intensity = 1.1 + bs * 5 + fl * 9 + Math.sin(t * 45) * 0.2; light.color.set(P.flame).lerp(_c.set(P.boostEdge), bs); }
+  }
+  function applyFlare(brs) {
+    const sp = feel.p.speed, a = Math.min(1, brs * 0.75 + state.brakePulse * 0.9) * sp.brakeFlare;
+    const on = a > 0.01;
+    flareMat.opacity = Math.min(1, a);
+    for (const m of flares) {
+      m.visible = on;
+      if (on) { const sc = m.userData.r * 4.2 * (0.85 + 0.4 * brs + 0.7 * state.brakePulse); m.scale.set(sc, sc, 1); }
+    }
   }
   function applyDamage(t) {
     const d = state.damage;
@@ -317,14 +352,25 @@ export function createVanta(opts = {}) {
     state.brakeS += (state.brake - state.brakeS) * kb;
     applyArticulation(state.boostS, state.brakeS, t);
     applyDamage(t);
+    state.flash *= Math.exp(-5.5 * dt); state.brakePulse *= Math.exp(-7 * dt);
     applyFlames(state.boostS, state.brakeS, t);
+    applyFlare(state.brakeS);
   }
 
   const api = {
     group, model, wings, flames, anchors, engines, light, meshes,
     canopy, fuselage: fus,
-    setBoost(v) { state.boost = clamp(v || 0, 0, 1); },
-    setBrake(v) { state.brake = clamp(v || 0, 0, 1); },
+    setBoost(v) {
+      v = clamp(v || 0, 0, 1);
+      // onset flash: rising through 0.2 after having been near rest (the arm resets below 0.08, so idle hover never retriggers)
+      if (state.armBoost && v > 0.2) { state.flash = 1; state.armBoost = false; } else if (v < 0.08) state.armBoost = true;
+      state.boost = v;
+    },
+    setBrake(v) {
+      v = clamp(v || 0, 0, 1);
+      if (state.armBrake && v > 0.25) { state.brakePulse = 1; state.armBrake = false; } else if (v < 0.08) state.armBrake = true;
+      state.brake = v;
+    },
     setRoll(a) { state.spin = a || 0; applyPose(); },
     setBank(pitch = 0, roll = 0, yaw = 0) { state.pitch = pitch; state.roll = roll; state.yaw = yaw; applyPose(); },
     setDamage(d) { state.damage = clamp(d || 0, 0, 1); },

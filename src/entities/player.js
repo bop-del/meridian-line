@@ -3,16 +3,54 @@
 // Public fields and methods: player.hitRadius (fair hitbox for shots), player.reticleFar, player.locks[],
 // player.hovered[] (enemies under the far reticle while holding fire), player.charge (0..1) and player.charging,
 // player.boostAmount/brakeAmount (smoothed 0..1 for camera and renderer), player.aimDir, player.localVelocity,
-// player.upgradeLaser(), player.collectPickup(kind) (fallback pickup effects), player.knock(dir, strength).
+// player.upgradeLaser(), player.collectPickup(kind) (fallback pickup effects), player.knock(dir, strength),
+// player.bank (visual roll normalised to the bank angle, about -1..1), player.bankAngle / pitchAngle / yawAngle (radians),
+// player.surge (visual forward slip in u, + is back).
+// Handling is live tuned through feel.p.handling (src/feel/handling.js): steering, soft edges, attitude springs,
+// surge, barrel roll. Values are read every frame.
 // Damage units: 1 = one twin-laser hit (enemy hp is expressed in hits). Death emits `game:over` when no lives remain.
 import * as THREE from 'three';
 import { createVanta } from '../models/vanta.js';
 import { config } from '../config.js';
+import { feel } from '../core/feel.js';
 
 const cfg = config.player;
 const clamp = THREE.MathUtils.clamp;
 const damp = (cur, target, rate, dt) => cur + (target - cur) * (1 - Math.exp(-rate * dt));
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+const DEG = Math.PI / 180;
+const hp = () => feel.p.handling || {};
+
+// Damped spring on s = { x, v } toward target. freq in Hz, zeta is the damping ratio (1 critical). Substepped, allocation free.
+function spring(s, target, freq, zeta, dt) {
+  if (!(dt > 0)) return s.x;
+  const w = 2 * Math.PI * Math.max(0.05, freq);
+  const n = Math.min(10, Math.ceil(dt * 240));
+  const h = dt / n;
+  for (let i = 0; i < n; i++) {
+    s.v += (-w * w * (s.x - target) - 2 * zeta * w * s.v) * h;
+    s.x += s.v * h;
+  }
+  if (!Number.isFinite(s.x) || !Number.isFinite(s.v)) { s.x = target; s.v = 0; }
+  return s.x;
+}
+
+// One steering axis: coast (decel) when centred, reverse bite when steering against the motion, else accel.
+function stepAxis(v, t, top, accel, rev, decel, dt) {
+  const rate = Math.abs(t) < 0.02 * top ? decel : (Math.sign(t) !== Math.sign(v) && Math.abs(v) > 0.06 * top ? rev : accel);
+  return damp(v, t, rate, dt);
+}
+
+// Limit the velocity toward an edge so the ship eases to a stop exactly at +-bound (constant deceleration zone of width soft).
+function softEdge(off, v, bound, vref, soft) {
+  if (soft <= 0.01) return v;
+  const limP = vref * Math.sqrt(Math.max(0, bound - off) / soft);
+  if (v > limP) v = limP;
+  const limN = vref * Math.sqrt(Math.max(0, bound + off) / soft);
+  if (v < -limN) v = -limN;
+  return v;
+}
 
 const _d = new THREE.Vector3();
 const _m = new THREE.Vector3();
@@ -39,6 +77,7 @@ export const player = {
   charging: false,
   controlsEnabled: false,
   rollAngle: 0, bank: 0,
+  bankAngle: 0, pitchAngle: 0, yawAngle: 0, surge: 0,
   group: null, ship: null,
   ctx: null,
 
@@ -46,6 +85,8 @@ export const player = {
   _invuln: 0, _respawnInv: false, _rollT: 0, _rollDir: 1, _rollCd: 0, _fireCd: 0, _bombCd: 0,
   _side: 0, _hold: 0, _boostDelay: 0, _deathT: 0, _deathDone: false, _time: 0,
   _volley: [], _smoke: null, _alarmT: 0, _knock: new THREE.Vector2(), _lastEngine: -1,
+  _acc: new THREE.Vector2(), _prevLv: new THREE.Vector2(),
+  _sRoll: { x: 0, v: 0 }, _sPitch: { x: 0, v: 0 }, _sYaw: { x: 0, v: 0 }, _sSurge: { x: 0, v: 0 },
 
   init(ctx) {
     this.ctx = ctx;
@@ -63,6 +104,7 @@ export const player = {
     this.isBoosting = this.isBraking = this.isRolling = false;
     this.boostAmount = this.brakeAmount = 0; this.charge = 0; this.charging = false;
     this.rollAngle = 0; this.bank = 0;
+    this._resetAttitude();
     this.localOffset.set(0, 0); this.localVelocity.set(0, 0); this._knock.set(0, 0);
     this.clearLocks();
     this._stopSmoke();
@@ -76,9 +118,15 @@ export const player = {
   // ------------------------------------------------------------------ helpers
   bounds(ctx) { return ctx.world?.levelInfo?.bounds ?? config.bounds; },
 
+  _resetAttitude() {
+    for (const s of [this._sRoll, this._sPitch, this._sYaw, this._sSurge]) { s.x = 0; s.v = 0; }
+    this._acc.set(0, 0); this._prevLv.copy(this.localVelocity);
+    this.bankAngle = this.pitchAngle = this.yawAngle = this.surge = 0;
+  },
+
   syncTransform(ctx) {
     const rp = ctx.rail.position;
-    this.position.set(rp.x + this.localOffset.x, rp.y + this.localOffset.y, rp.z);
+    this.position.set(rp.x + this.localOffset.x, rp.y + this.localOffset.y, rp.z + this.surge);
     this.group.position.copy(this.position);
     this.velocity.set(this.localVelocity.x, this.localVelocity.y, -ctx.rail.speed);
   },
@@ -112,6 +160,7 @@ export const player = {
     this._time += dt;
     const s = ctx.state;
     const inp = ctx.input;
+    const h = hp();
     const idle = !this.controlsEnabled;
     const active = this.alive && !idle;
 
@@ -153,34 +202,42 @@ export const player = {
     if (!this.isRolling && this._rollCd <= 0 && (inp.rollLeft || inp.rollRight)) this.barrelRoll(inp.rollRight ? 1 : -1);
     if (this.isRolling) {
       this._rollT += dt;
-      const p = clamp(this._rollT / cfg.rollTime, 0, 1);
-      this.rollAngle = -this._rollDir * Math.PI * 2 * easeInOut(p);
-      if (p >= 1) { this.isRolling = false; this.rollAngle = 0; this._rollCd = cfg.rollCooldown; }
+      const p = clamp(this._rollT / (h.rollTime ?? cfg.rollTime), 0, 1);
+      const snap = clamp(h.rollShape ?? 0.6, 0, 1);
+      this.rollAngle = -this._rollDir * Math.PI * 2 * (easeInOut(p) * (1 - snap) + easeOut(p) * snap);
+      if (p >= 1) { this.isRolling = false; this.rollAngle = 0; this._rollCd = h.rollCooldown ?? cfg.rollCooldown; }
     }
 
-    // ---- steering with inertia
-    const steerScale = this.isBoosting ? cfg.boostSteer : this.isBraking ? cfg.brakeSteer : 1;
-    const tx = inp.axis.x * cfg.speedX * steerScale;
-    const ty = inp.axis.y * cfg.speedY * steerScale;
+    // ---- steering with inertia (exponential approach to the steered speed, separate accel, reverse and coast rates)
+    const speedX = h.speedX ?? cfg.speedX, speedY = h.speedY ?? cfg.speedY;
+    let steerScale = this.isBoosting ? (h.boostSteer ?? cfg.boostSteer) : this.isBraking ? (h.brakeSteer ?? cfg.brakeSteer) : 1;
+    const committed = this.isRolling && this._rollT < (h.rollCommit ?? 0);
+    if (this.isRolling) steerScale *= h.rollSteer ?? 1;
+    const tx = inp.axis.x * speedX * steerScale;
+    const ty = inp.axis.y * speedY * steerScale;
     const lv = this.localVelocity;
-    const stepAxis = (v, t) => {
-      const rate = Math.abs(t) < 0.5 ? cfg.decel : (Math.sign(t) !== Math.sign(v) && Math.abs(v) > 2 ? cfg.reverseAccel : cfg.accel);
-      return damp(v, t, rate, dt);
-    };
-    lv.x = stepAxis(lv.x, tx);
-    lv.y = stepAxis(lv.y, ty);
+    const accel = h.accel ?? cfg.accel, rev = h.reverseAccel ?? cfg.reverseAccel, decel = h.decel ?? cfg.decel;
+    if (!committed) lv.x = stepAxis(lv.x, tx, speedX, accel, rev, decel, dt);   // roll commit: hold the side kick, ignore steering
+    lv.y = stepAxis(lv.y, ty, speedY, accel, rev, decel, dt);
     if (this._knock.lengthSq() > 0.01) { lv.x += this._knock.x; lv.y += this._knock.y; this._knock.set(0, 0); }
+    // soft edges: ease to a stop at the play area bounds, then a hard clamp as the safety net
+    const b = this.bounds(ctx);
+    const soft = h.edgeSoft ?? 0;
+    lv.x = softEdge(this.localOffset.x, lv.x, b.x, speedX * 1.2, Math.min(soft, b.x * 0.4));
+    lv.y = softEdge(this.localOffset.y, lv.y, b.y, speedY * 1.2, Math.min(soft, b.y * 0.4));
     this.localOffset.x += lv.x * dt;
     this.localOffset.y += lv.y * dt;
-    const b = this.bounds(ctx);
-    if (this.localOffset.x > b.x) { this.localOffset.x = b.x; if (lv.x > 0) lv.x *= 0.1; }
-    else if (this.localOffset.x < -b.x) { this.localOffset.x = -b.x; if (lv.x < 0) lv.x *= 0.1; }
-    if (this.localOffset.y > b.y) { this.localOffset.y = b.y; if (lv.y > 0) lv.y *= 0.1; }
-    else if (this.localOffset.y < -b.y) { this.localOffset.y = -b.y; if (lv.y < 0) lv.y *= 0.1; }
+    if (this.localOffset.x > b.x) { this.localOffset.x = b.x; if (lv.x > 0) lv.x = 0; }
+    else if (this.localOffset.x < -b.x) { this.localOffset.x = -b.x; if (lv.x < 0) lv.x = 0; }
+    if (this.localOffset.y > b.y) { this.localOffset.y = b.y; if (lv.y > 0) lv.y = 0; }
+    else if (this.localOffset.y < -b.y) { this.localOffset.y = -b.y; if (lv.y < 0) lv.y = 0; }
+    // surge: the ship slips back when the rail speeds up and forward when it slows (visible mass)
+    const sMax = h.surgeMax ?? 0;
+    this.surge = spring(this._sSurge, clamp((ctx.rail.accel || 0) * (h.surgeGain ?? 0), -sMax, sMax), h.surgeFreq ?? 1.8, 0.75, dt);
 
     this.syncTransform(ctx);
     this.updateReticles(ctx);
-    this.applyModel(dt, ctx);
+    this.applyModel(dt, ctx, steerScale);
 
     // ---- invulnerability and flicker
     this.invulnerable = this._invuln > 0 || this.isRolling;
@@ -200,17 +257,34 @@ export const player = {
 
     // ---- feedback
     ctx.fx?.speedLines?.(this.boostAmount);
-    const sp01 = clamp((ctx.rail.speed - config.rail.brakeSpeed) / (config.rail.boostSpeed - config.rail.brakeSpeed), 0, 1);
+    const bs = ctx.rail.boostSpeed ?? config.rail.boostSpeed, ks = ctx.rail.brakeSpeed ?? config.rail.brakeSpeed;
+    const sp01 = clamp((ctx.rail.speed - ks) / Math.max(1, bs - ks), 0, 1);
     ctx.audio?.setEngine?.(sp01, this.isBoosting);
   },
 
-  applyModel(dt, ctx) {
-    const lv = this.localVelocity;
-    const nx = clamp(lv.x / cfg.speedX, -1.3, 1.3), ny = clamp(lv.y / cfg.speedY, -1.3, 1.3);
-    this.bank = damp(this.bank, -nx, 14, dt);
-    const roll = this.bank * cfg.bankRoll;
-    const pitch = ny * cfg.bankPitch;
-    const yaw = -nx * cfg.bankYaw;
+  // Attitude: underdamped springs toward a blend of the actual speed and the stick (the stick share makes the ship lean
+  // the moment a key goes down, the springs give the overshoot and settle that read as mass).
+  applyModel(dt, ctx, steerScale = 1) {
+    const h = hp();
+    const lv = this.localVelocity, ax = ctx.input.axis;
+    const sX = h.speedX ?? cfg.speedX, sY = h.speedY ?? cfg.speedY;
+    // smoothed sideways and vertical acceleration (knocks excluded by the clamp below), normalised by a nominal 12/s ramp
+    if (dt > 0) {
+      const k = 1 - Math.exp(-20 * dt);
+      this._acc.x += ((lv.x - this._prevLv.x) / dt - this._acc.x) * k;
+      this._acc.y += ((lv.y - this._prevLv.y) / dt - this._acc.y) * k;
+      this._prevLv.copy(lv);
+    }
+    const ka = this.isRolling ? 0 : h.bankAccel ?? 0;
+    const w = this.isRolling ? 0 : clamp(h.bankIntent ?? 0, 0, 1);
+    const nx = clamp(lv.x / sX, -1.3, 1.3) * (1 - w) + clamp(ax.x * steerScale, -1.3, 1.3) * w + ka * clamp(this._acc.x / (sX * 12), -1.2, 1.2);
+    const ny = clamp(lv.y / sY, -1.3, 1.3) * (1 - w) + clamp(ax.y * steerScale, -1.3, 1.3) * w + ka * clamp(this._acc.y / (sY * 12), -1.2, 1.2);
+    const bankRad = (h.bankRoll ?? 38) * DEG;
+    const roll = clamp(spring(this._sRoll, -nx * bankRad, h.bankFreq ?? 2.6, h.bankDamping ?? 0.5, dt), -80 * DEG, 80 * DEG);
+    const pitch = clamp(spring(this._sPitch, ny * (h.bankPitch ?? 16) * DEG, h.attFreq ?? 3, h.attDamping ?? 0.55, dt), -45 * DEG, 45 * DEG);
+    const yaw = clamp(spring(this._sYaw, -nx * (h.bankYaw ?? 8) * DEG, h.attFreq ?? 3, h.attDamping ?? 0.55, dt), -30 * DEG, 30 * DEG);
+    this.bankAngle = roll; this.pitchAngle = pitch; this.yawAngle = yaw;
+    this.bank = bankRad > 1e-4 ? roll / bankRad : 0;
     const ship = this.ship;
     ship.setBank?.(pitch, roll, yaw);
     ship.setRoll?.(this.rollAngle);
@@ -222,6 +296,7 @@ export const player = {
     // title and cinematic states: hover in place, gentle sway
     const t = this._time;
     this.localOffset.set(0, 0); this.localVelocity.set(0, 0);
+    if (this.surge || this._sRoll.x) this._resetAttitude();
     this.syncTransform(ctx);
     if (this.alive) {
       this.group.position.y += Math.sin(t * 1.3) * 0.18;
@@ -390,7 +465,7 @@ export const player = {
   barrelRoll(dir = 1) {
     if (!this.alive || this.isRolling) return false;
     this.isRolling = true; this._rollT = 0; this._rollDir = dir >= 0 ? 1 : -1;
-    this.localVelocity.x += this._rollDir * cfg.rollKick;
+    this.localVelocity.x += this._rollDir * (hp().rollKick ?? cfg.rollKick);
     this.ctx?.audio?.sfx?.('roll');
     this.ctx?.events.emit('player:roll', { dir: this._rollDir });
     return true;
@@ -416,9 +491,9 @@ export const player = {
     this.ship?.setDamage?.(1 - s.health / s.maxHealth);
     ctx.audio?.sfx?.('damage');
     ctx.fx?.flash?.('#ff2a10', 0.32, 0.28);
-    ctx.fx?.shake?.(Math.min(1, 0.35 + amount / 40), 0.35);
+    // camera shake for damage comes from src/fx/impact.js (player:damage event)
     ctx.fx?.sparks?.(this.position, undefined, 14);
-    ctx.events.emit('player:damage', { amount, source });
+    ctx.events.emit('player:damage', { amount, source, position: this.position, health: s.health, maxHealth: s.maxHealth });
     if (s.health / s.maxHealth < 0.4 && !this._smoke) this._smoke = ctx.fx?.damageSmoke?.(this) ?? null;
     if (s.health <= 0) this.die(source);
     return true;
@@ -473,7 +548,6 @@ export const player = {
     ctx.fx?.debris?.(this.position, 22, 0x9aa8c4);
     ctx.fx?.shockwave?.(this.position, { radius: 18, color: 0xffa860 });
     ctx.fx?.flash?.('#ffffff', 0.5, 0.35);
-    ctx.fx?.shake?.(1, 0.8);
     ctx.audio?.sfx?.('bigExplosion');
     ctx.events.emit('player:dead', { source });
   },
@@ -498,6 +572,7 @@ export const player = {
     this._invuln = cfg.respawnInvulnerable; this._respawnInv = true; this.invulnerable = true;
     this.localVelocity.set(0, 0);
     this.rollAngle = 0; this.bank = 0;
+    this._resetAttitude();
     this.group.visible = true;
     this.ship?.setDamage?.(0);
     ctx.projectiles.clearEnemyShots?.(this.position, 45);

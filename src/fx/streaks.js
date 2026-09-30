@@ -8,14 +8,14 @@ const VERT = /* glsl */ `
   attribute vec4 iSeed;
   uniform vec3 uCam;
   uniform vec2 uR;        // inner/outer radius around the camera axis
-  uniform float uDepth, uNear, uLen, uWidth, uAmount, uAlpha;
+  uniform float uDepth, uNear, uLen, uWidth, uAmount, uAlpha, uFadeNear;
   varying vec2 vC; varying float vA;
   void main() {
     float ang = iSeed.x * 6.2831853;
     float rad = mix(uR.x, uR.y, iSeed.y);
     float m = mod(iSeed.z * uDepth + uCam.z, uDepth);
     vec3 c = vec3(uCam.x + cos(ang) * rad, uCam.y + sin(ang) * rad * 0.75, uCam.z - uNear - m);
-    float fade = smoothstep(0.0, 8.0, m) * (1.0 - smoothstep(uDepth * 0.55, uDepth, m));
+    float fade = smoothstep(0.0, uFadeNear, m) * (1.0 - smoothstep(uDepth * 0.55, uDepth, m));
     float vis = step(iSeed.w, uAmount);
     vA = uAlpha * fade * vis * (0.35 + 0.65 * fract(iSeed.w * 13.7));
     vec3 t = uCam - c;
@@ -52,7 +52,7 @@ export class StreakField {
       uCam: { value: new THREE.Vector3() },
       uR: { value: new THREE.Vector2(opts.rMin ?? 2, opts.rMax ?? 20) },
       uDepth: { value: opts.depth ?? 120 }, uNear: { value: opts.near ?? 2 },
-      uLen: { value: opts.len ?? 4 }, uWidth: { value: opts.width ?? 0.05 },
+      uLen: { value: opts.len ?? 4 }, uFadeNear: { value: opts.fadeNear ?? 8 }, uWidth: { value: opts.width ?? 0.05 },
       uAmount: { value: 1 }, uAlpha: { value: opts.alpha ?? 0.5 },
       uColor: { value: new THREE.Color(opts.color ?? 0xaaccff) },
     };
@@ -64,13 +64,19 @@ export class StreakField {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = opts.renderOrder ?? 9;
     this.mesh.name = opts.name || 'fxStreaks';
+    // anchor to the camera pose that is actually drawn (after the camera rig and shake), so nothing lags by a frame
+    this.mesh.onBeforeRender = (r, sc, cam) => this.uniforms.uCam.value.copy(cam.position);
     scene.add(this.mesh);
   }
-  set(cam, amount, len) {
+  /** cam: camera position, amount: 0..1 fraction of streaks drawn, len: base length, alpha: overall alpha. */
+  set(cam, amount, len, alpha) {
     this.uniforms.uCam.value.copy(cam);
     this.uniforms.uAmount.value = amount;
     if (len !== undefined) this.uniforms.uLen.value = len;
-    this.mesh.visible = amount > 0.005;
+    if (alpha !== undefined) this.uniforms.uAlpha.value = alpha;
+    this.mesh.visible = amount > 0.005 && this.uniforms.uAlpha.value > 0.002;
   }
+  setRadius(rMin, rMax) { this.uniforms.uR.value.set(rMin, rMax); }
+  setColor(c) { this.uniforms.uColor.value.copy(c); }
   dispose() { this.mesh.geometry.dispose(); this.material.dispose(); this.mesh.parent?.remove(this.mesh); }
 }

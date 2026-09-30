@@ -47,7 +47,6 @@ export class Missile extends Enemy {
     const rr = this.radius * 0.7 + ctx.player.radius * 0.8;
     if (this.sweepDist2(ctx, dt) < rr * rr) {
       ctx.fx?.explosion?.(this.position, { scale: 1.6, color: 0xff8833 });
-      ctx.fx?.shake?.(0.5, 0.25);
       if (!ctx.player.invulnerable) ctx.player.takeDamage?.(this.damage * diff(ctx).enemyDamage, this);
       this.destroy();
     } else if (this.life <= 0) { ctx.fx?.explosion?.(this.position, { scale: 1.0 }); this.destroy(); }

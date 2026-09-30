@@ -12,6 +12,9 @@ import { input } from './input.js';
 import { rail } from './rail.js';
 import { collision } from './collision.js';
 import { cameraRig } from './cameraRig.js';
+import { feel } from './feel.js';
+import { impact } from '../fx/impact.js';
+import { speedfx } from '../fx/speedfx.js';
 import { player } from '../entities/player.js';
 import { projectiles } from '../entities/projectiles.js';
 import { render } from '../render/renderer.js';
@@ -29,7 +32,7 @@ const ESCORTS = ['vex', 'ferro', 'pip'];
 export function startGame(mount, uiRoot) {
   const params = new URLSearchParams(location.search);
   const ctx = {
-    THREE, config, events, state, input, rail, collision, cameraRig, player, projectiles, render, fx, audio, ui, world, enemies, allies,
+    THREE, config, feel, events, state, input, rail, collision, cameraRig, impact, speedfx, player, projectiles, render, fx, audio, ui, world, enemies, allies,
     clock: new THREE.Clock(),
     groups: { playerShots: [], enemyShots: [], enemies: [], obstacles: [], pickups: [], allies: [] },
     timeScale: 1,
@@ -40,10 +43,10 @@ export function startGame(mount, uiRoot) {
   render.init(ctx, mount);
 
   const gameplay = [input, rail, world, enemies, allies, player, projectiles, collision];
-  const always = [cameraRig, fx, ui, audio];
+  const always = [impact, speedfx, cameraRig, fx, ui, audio];
   const all = [...gameplay, ...always];
   const names = new Map([[input, 'input'], [rail, 'rail'], [world, 'world'], [enemies, 'enemies'], [allies, 'allies'], [player, 'player'],
-    [projectiles, 'projectiles'], [collision, 'collision'], [cameraRig, 'cameraRig'], [fx, 'fx'], [ui, 'ui'], [audio, 'audio'], [render, 'render']]);
+    [projectiles, 'projectiles'], [collision, 'collision'], [impact, 'impact'], [speedfx, 'speedfx'], [cameraRig, 'cameraRig'], [fx, 'fx'], [ui, 'ui'], [audio, 'audio'], [render, 'render']]);
 
   // A throwing module must not take the whole loop down: log a few times per module and carry on.
   const errCount = new Map();
@@ -57,6 +60,29 @@ export function startGame(mount, uiRoot) {
 
   all.forEach((m) => safe(m, 'init', ctx, uiRoot));
   all.forEach((m) => safe(m, 'reset', ctx));
+
+  // Feel tools: the tuning panel and the telemetry it reads, loaded on demand and never on the normal path. They start with
+  // ?tune=1 (panel plus telemetry) or ?telemetry=1 (telemetry only), or from the pause menu entry FEEL TUNING.
+  const dev = [];
+  let devLoading = null;
+  function loadDev(withPanel) {
+    devLoading = devLoading || import('./telemetry.js').then(({ telemetry }) => {
+      dev.push(telemetry); ctx.telemetry = telemetry; safe(telemetry, 'init', ctx);
+    });
+    if (!withPanel) return devLoading;
+    return devLoading.then(() => (ctx.tunePanel ? ctx.tunePanel : import('../dev/tunePanel.js').then(({ tunePanel }) => {
+      dev.push(tunePanel); ctx.tunePanel = tunePanel; safe(tunePanel, 'init', ctx, uiRoot);
+      return tunePanel;
+    })));
+  }
+  if (params.get('nooverlay') === '1') {
+    const st = document.createElement('style');
+    st.textContent = '.ui-scan{display:none!important} *{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;mix-blend-mode:normal!important}';
+    document.head.appendChild(st);
+  }
+  if (params.get('diag') === '1') import('../dev/diag.js').then(({ diag }) => { dev.push(diag); ctx.diag = diag; safe(diag, 'init', ctx); });
+  if (params.get('tune') === '1') loadDev(true);
+  else if (params.get('telemetry') === '1') loadDev(false);
 
   // ------------------------------------------------------------------ phase handling
   let phaseAt = performance.now();
@@ -96,7 +122,7 @@ export function startGame(mount, uiRoot) {
     state.health = state.maxHealth; state.boost = 1; state.boostCooldown = 0;
     state.bombs = Math.max(state.bombs, config.player.bombs);
     state.levelStats = null;
-    for (const m of [rail, world, enemies, allies, projectiles, collision, player, cameraRig, fx, ui, audio]) safe(m, 'reset', ctx);
+    for (const m of [rail, world, enemies, allies, projectiles, collision, player, impact, speedfx, cameraRig, fx, ui, audio]) safe(m, 'reset', ctx);
     safe(world, 'loadLevel', index);
     if (!allies.wingmen || allies.wingmen.length === 0) safe(allies, 'spawnWingmen', ESCORTS);
     safe(allies, 'setEnabled', state.phase === 'playing');
@@ -155,12 +181,14 @@ export function startGame(mount, uiRoot) {
     else { hitStopT = Math.max(hitStopT, duration); hitStopScale = Math.min(hitStopScale, scale); }
   }
 
-  ctx.game = { setPhase, startLevel, newRun, restartLevel, toTitle, pause, resume, hitStop };
+  const openTuning = () => loadDev(true).then((panel) => { panel?.toggle?.(true); });
+  ctx.game = { openTuning, setPhase, startLevel, newRun, restartLevel, toTitle, pause, resume, hitStop };
 
   // ------------------------------------------------------------------ UI and gameplay events
   events.on('ui:start', (p) => { if (state.phase === 'title' || state.phase === 'gameover' || state.phase === 'victory') newRun(p && typeof p === 'object' ? p : {}); });
   events.on('ui:resume', () => resume());
   events.on('ui:pause', () => pause());
+  events.on('ui:tune', () => { openTuning(); resume(); });
   events.on('ui:restart', () => { if (state.phase === 'victory' || !runFlag) newRun({}); else restartLevel(); });
   events.on('ui:nextLevel', () => {
     if (state.phase !== 'levelcomplete') return;
@@ -189,13 +217,7 @@ export function startGame(mount, uiRoot) {
     else setPhase('levelcomplete');
   });
 
-  // hit stop and slow-mo accents
-  events.on('player:damage', (p) => { if ((p?.amount ?? 0) >= 12) hitStop(0.07, 0.06); });
-  events.on('player:dead', () => hitStop(0.4, 0.22));
-  events.on('boss:defeated', () => hitStop(0.55, 0.16));
-  events.on('fx:hitstop', (p) => hitStop(Math.min(0.6, p?.duration ?? 0.06), 0.06));
-  events.on('bomb:detonate', () => hitStop(0.09, 0.08));
-  events.on('enemy:killed', (p) => { if (p?.enemy?.big || (p?.points ?? 0) >= 500) hitStop(0.045, 0.05); });
+  // hit stop and slow-mo accents live in src/fx/impact.js
 
   // focus handling
   const blurPause = () => pause();
@@ -238,23 +260,30 @@ export function startGame(mount, uiRoot) {
       state.levelTime += dt;
       for (const m of gameplay) if (m !== input) safe(m, 'update', dt, ctx);
       safe(projectiles, 'lateUpdate', ctx);
+      safe(impact, 'update', dt, ctx);
+      safe(speedfx, 'update', dt, ctx);
       safe(cameraRig, 'update', dt, ctx);
       safe(fx, 'update', dt, ctx);
     } else if (phase === 'title') {
       safe(rail, 'update', dt, ctx);
       safe(world, 'update', dt, ctx);
       safe(player, 'update', dt, ctx);
+      safe(impact, 'update', dt, ctx);
+      safe(speedfx, 'update', dt, ctx);
       safe(cameraRig, 'update', dt, ctx);
       safe(fx, 'update', dt, ctx);
     } else if (phase === 'paused') {
       // world frozen: only UI, audio and render advance
     } else {
       // gameover, levelcomplete, victory: frozen world, orbiting camera, live particles
+      safe(impact, 'update', raw, ctx);
+      safe(speedfx, 'update', raw, ctx);
       safe(cameraRig, 'update', raw, ctx);
       safe(fx, 'update', raw, ctx);
     }
     safe(ui, 'update', raw, ctx);
     safe(audio, 'update', raw, ctx);
+    for (const m of dev) safe(m, 'update', raw, ctx);
     if (doRender) safe(render, 'render', raw);
   }
   ctx.game.step = step;

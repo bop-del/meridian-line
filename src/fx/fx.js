@@ -1,10 +1,10 @@
-// Visual effects: pooled GPU particles, debris, shockwave spheres, trails, camera shake, speed lines, space dust.
+// Visual effects: pooled GPU particles, debris, shockwave spheres, trails, shake forwarding, hit sparks, kill and fire flares.
 //
-// API: fx.trail(target, opts), fx.shakeOffset / fx.shakeRoll (applied by
-// render.render unless ctx.cameraRig.appliesShake), fx.stats(), fx.setDensity(0..1), fx.explosion opts {sound:false}.
+// API: fx.trail(target, opts), fx.shake(intensity, duration, kind?) (forwards to ctx.impact), fx.stats(), fx.setDensity(0..1),
+// fx.explosion opts {sound:false}, fx.hitSpark(pos, color?, power?), fx.killBurst(pos, radius, color?), fx.fireFlare(pos, color?, size?).
+// Feel parameters (feel.p.impact.*) are read at call time.
 import * as THREE from 'three';
 import { ParticlePool, K_GLOW, K_SPARK, K_SMOKE, K_RING, K_FLARE, K_EMBER, K_FIRE } from './particles.js';
-import { StreakField } from './streaks.js';
 import { DebrisPool } from './debris.js';
 
 const R = Math.random;
@@ -30,8 +30,7 @@ const SPHERE_FRAG = `uniform vec3 uColor; uniform float uFade; varying vec3 vN; 
 export const fx = {
   ctx: null, time: 0,
   shakeOffset: new THREE.Vector3(), shakeRoll: 0,
-  _trauma: 0, _shakeRate: 0, _density: 1,
-  _speedManual: 0, _speedAmt: 0,
+  _density: 1,
 
   init(ctx) {
     this.ctx = ctx;
@@ -41,8 +40,6 @@ export const fx = {
     this.debrisPool = new DebrisPool(scene, (x, y, z, vx, vy, vz) => {
       this.add.emit(x, y, z, vx, vy, vz, rr(0.3, 0.6), 1.6, 0.8, 0.25, 0.22, 0.6, 0.12, 0.02, 0.05, 1.5, 0, 0, K_EMBER);
     });
-    this.speedField = new StreakField(scene, 110, { rMin: 3.5, rMax: 24, depth: 170, near: 3, len: 14, width: 0.045, alpha: 0.55, color: 0xbfd8ff, name: 'fxSpeedLines', renderOrder: 9 });
-    this.dust = new StreakField(scene, 260, { rMin: 4, rMax: 55, depth: 110, near: 0, len: 0.7, width: 0.05, alpha: 0.55, color: 0x9fb4d8, name: 'fxDust', renderOrder: 8 });
 
     // shockwave spheres (bomb)
     this.spheres = [];
@@ -65,19 +62,25 @@ export const fx = {
         offset: new THREE.Vector3(), hasOffset: false, color: 0x66aaff, color2: 0x2244ff, size: 0.5, life: 0.4, rate: 80, spread: 0.1, stop() { this.active = false; this.target = null; } };
       this.trails.push(h);
     }
-    ctx.events?.on?.('fx:hitstop', () => {});
     ctx.events?.on?.('game:start', () => this.reset());
   },
 
   reset() {
     this.add?.clear(); this.alpha?.clear(); this.debrisPool?.clear();
-    this._trauma = 0; this._shakeRate = 0; this.shakeOffset.set(0, 0, 0); this.shakeRoll = 0;
     if (this.sched) for (const s of this.sched) s.t = -1;
     if (this.trails) for (const h of this.trails) h.stop();
     if (this.spheres) for (const s of this.spheres) { s.active = false; s.mesh.visible = false; }
   },
 
   setDensity(d) { this._density = clamp(d, 0.2, 1); },
+  _P() { return this.ctx.feel.p.impact; },
+  // how much a small effect at (x, y, z) is enlarged so it still reads at gameplay distance (1 near the camera, up to 3.5 far away)
+  _df(x, y, z) {
+    const c = this.ctx.camera;
+    if (!c) return 1;
+    const d = Math.hypot(c.position.x - x, c.position.y - y, c.position.z - z);
+    return 1 + (clamp(d / 35, 1, 3.5) - 1) * this._P().hitSparkDistance;
+  },
   _q() { return clamp(1 - this.add.spawnedFrame / 2600, 0.25, 1) * this._density; },
 
   // ---------- low level emit helpers ----------
@@ -140,13 +143,14 @@ export const fx = {
         e.t = 0.08 + i * rr(0.09, 0.16); e.x = x + rx * rad; e.y = y + ry * rad; e.z = z + rz * rad; e.s = rr(0.45, 0.8) * s; e.color = hex;
       }
     }
-    // camera feedback by distance
+    // camera feedback by distance. Only big blasts shake the camera (small kills and hits are handled by the impact module
+    // from the game events), and they use the heavy 'blast' curve so they merge with the kill shake that follows.
     const cam = this.ctx.camera;
-    if (cam && !o.quiet) {
+    if (cam && !o.quiet && big) {
       const dist = cam.position.distanceTo(_v.set(x, y, z));
-      const fall = clamp(1 - dist / (big ? 260 : 90), 0, 1);
-      if (fall > 0) this.shake(clamp((big ? 0.55 : 0.14) * S * fall, 0, 1), big ? 0.7 : 0.25);
-      if (big) this.flash('#ffffff', 0.28 * Math.max(fall, 0.3), 0.3);
+      const fall = clamp(1 - dist / 260, 0, 1);
+      if (fall > 0) this.shake(clamp(0.3 * S * fall * this._P().explosionShake, 0, 0.8), 0.6, 'blast');
+      this.flash('#ffffff', 0.28 * Math.max(fall, 0.3), 0.3);
     }
   },
 
@@ -190,14 +194,46 @@ export const fx = {
     }
   },
 
-  hitSpark(pos, color = 0xffe2a0) {
+  /** Small flash and sparks where a shot lands. power scales the size, distant sparks are enlarged so they read at range. */
+  hitSpark(pos, color = 0xffe2a0, power = 1) {
     if (!this.add) return;
-    this._glow(pos.x, pos.y, pos.z, 0, 0, 0, 0.13, 0xffffff, 3.2, 0.9, color, 1.2, 0.55, 0, 0, K_FLARE);
+    const P = this._P();
+    const s = P.hitSparkScale * power * this._df(pos.x, pos.y, pos.z);
+    if (s <= 0) return;
+    this._glow(pos.x, pos.y, pos.z, 0, 0, 0, 0.13, 0xffffff, 3.2, 0.9 * s, color, 1.2, 0.55 * s, 0, 0, K_FLARE);
     const n = Math.max(2, Math.round(6 * this._q()));
+    const ss = Math.min(s, 2.4);
     for (let i = 0; i < n; i++) {
       rndDir(); const sp = rr(8, 24);
-      this.add.emit(pos.x, pos.y, pos.z, rx * sp, ry * sp, rz * sp, rr(0.18, 0.4), 2.0, 1.5, 0.6, rr(0.16, 0.26), 1.0, 0.25, 0.05, 0.03, 2.2, 2, 1.0, K_SPARK);
+      this.add.emit(pos.x, pos.y, pos.z, rx * sp, ry * sp, rz * sp, rr(0.18, 0.4), 2.0, 1.5, 0.6, rr(0.16, 0.26) * ss, 1.0, 0.25, 0.05 * ss, 0.03, 2.2, 2, 1.0, K_SPARK);
     }
+  },
+
+  /** Extra kill read on top of the explosion: a bright core flash, a thin shock ring and a few crisp sparks, scaled by the victim's radius. */
+  killBurst(pos, radius = 2, color = 0xffd9a0) {
+    if (!this.add) return;
+    const k = this._P().killBurstScale;
+    if (k <= 0) return;
+    const r = clamp(radius, 1, 12), df = this._df(pos.x, pos.y, pos.z), dr = Math.sqrt(df);
+    const x = pos.x, y = pos.y, z = pos.z;
+    // warm tinted flash and ring rather than pure white: white on bright water has no contrast
+    this._glow(x, y, z, 0, 0, 0, 0.12, 0xffffff, 2.4, (0.9 + r * 0.35) * k * dr, color, 1.4, (1.8 + r * 0.7) * k * dr, 3, 0, K_FLARE);
+    this._glow(x, y, z, 0, 0, 0, 0.3 + 0.03 * r, color, 1.5, 0.4, color, 0.3, (3.5 + r * 1.9) * k * dr, 0, 0, K_RING);
+    const n = Math.round((4 + r * 1.2) * this._q());
+    for (let i = 0; i < n; i++) {
+      rndDir(); const sp = rr(14, 34) * Math.sqrt(r);
+      this.add.emit(x, y, z, rx * sp, ry * sp, rz * sp, rr(0.25, 0.6), 2.4, 1.9, 1.0, rr(0.3, 0.5) * dr, 1.2, 0.3, 0.05, 0.03, 2.0, 3, 1.4, K_SPARK);
+    }
+  },
+
+  /** Flash at an enemy muzzle in the frame it fires, the payoff of the wind-up glow. size scales it. */
+  fireFlare(pos, color = 0xff8a3a, size = 1) {
+    if (!this.add) return;
+    const k = this._P().telegraphFlare * size;
+    if (k <= 0) return;
+    const df = Math.pow(this._df(pos.x, pos.y, pos.z), 0.7);
+    this._glow(pos.x, pos.y, pos.z, 0, 0, 0, 0.12, 0xffffff, 4.0, 1.2 * k * df, color, 1.6, 0.5 * k * df, 0, 0, K_FLARE);
+    this._glow(pos.x, pos.y, pos.z, 0, 0, 0, 0.24, color, 1.8, 0.9 * k * df, color, 0.3, 2.6 * k * df, 2.5);
   },
 
   shockwave(pos, o = {}) {
@@ -217,18 +253,21 @@ export const fx = {
       rndDir(); const s = rr(30, 90) * (radius / 60);
       this.add.emit(x, y, z, rx * s, ry * s, rz * s, rr(0.5, 1.1), 2.4, 2.4, 2.8, rr(0.3, 0.6), 0.6, 0.9, 1.6, 0.05, 1.0, 0, 1.2, K_SPARK);
     }
-    this.flash(o.flashColor ?? '#cfe8ff', 0.4, 0.4);
-    this.shake(1.0, 0.8);
+    // screen flash scaled by blast size and distance to the camera, so a burst of small mines does not chain into a white-out
+    const cam = this.ctx.camera;
+    const dist = cam ? cam.position.distanceTo(_v.set(x, y, z)) : 0;
+    const fall = clamp(1 - dist / (radius * 4 + 40), 0, 1);
+    this.flash(o.flashColor ?? '#cfe8ff', clamp(0.5 * Math.sqrt(radius / 60) * fall, 0.04, 0.4), radius < 30 ? 0.25 : 0.4);
+    // no shake here: bombs shake from bomb:detonate, other callers (mines, the player death, bosses) call fx.shake themselves
   },
 
-  shake(intensity = 0.5, duration = 0.3) {
-    const nt = Math.min(1, this._trauma + intensity * 0.75);
-    const remain = this._shakeRate > 0 ? this._trauma / this._shakeRate : 0;
-    this._trauma = nt;
-    this._shakeRate = nt / Math.max(duration, remain, 0.05);
-  },
+  shake(intensity = 0.5, duration = 0.3, kind = 'fx') { this.ctx?.impact?.addShake?.(intensity, duration, kind); },
 
-  flash(color = '#ffffff', alpha = 0.4, duration = 0.2) { this.ctx?.render?.flash?.(color, alpha, duration); },
+  flash(color = '#ffffff', alpha = 0.4, duration = 0.2) {
+    // player.js flashes '#ff2a10' at 0.32 for 0.28 s on every hit; feel.p.impact.damageFlash sets the strength of that flash
+    if (color === '#ff2a10') { alpha *= this._P().damageFlash / 0.32; duration = Math.min(duration, 0.18); }
+    this.ctx?.render?.flash?.(color, alpha, duration);
+  },
 
   /** persistent smoke plus embers from a low health entity. handle.stop() ends it, handle.intensity 0..1 scales it. */
   damageSmoke(target, o = {}) {
@@ -255,7 +294,7 @@ export const fx = {
   },
 
   /** speed lines: amount 0..1 (persistent until changed; boost and rail speed add automatically) */
-  speedLines(amount = 0) { this._speedManual = clamp(amount, 0, 1); },
+  speedLines(amount = 0) { this.ctx?.speedfx?.setManual?.(amount); },
 
   cellPickup(pos, color = 0xffd54a) {
     if (!this.add) return;
@@ -308,17 +347,6 @@ export const fx = {
     this.time += dt;
     const cam = ctx.camera;
 
-    // shake
-    if (this._trauma > 0) {
-      this._trauma = Math.max(0, this._trauma - this._shakeRate * dt);
-      const a = this._trauma * this._trauma, t = this.time;
-      this.shakeOffset.set(
-        a * 0.7 * (Math.sin(t * 47.1) + 0.5 * Math.sin(t * 83.3 + 1.7)),
-        a * 0.7 * (Math.sin(t * 53.9 + 2.1) + 0.5 * Math.sin(t * 79.7)),
-        a * 0.25 * Math.sin(t * 61.3 + 0.6));
-      this.shakeRoll = a * 0.05 * Math.sin(t * 41.7 + 1.1);
-    } else if (this.shakeRoll !== 0 || this.shakeOffset.lengthSq() > 0) { this.shakeOffset.set(0, 0, 0); this.shakeRoll = 0; }
-
     // delayed chain blasts
     for (let i = 0; i < this.sched.length; i++) {
       const e = this.sched[i];
@@ -327,7 +355,7 @@ export const fx = {
       if (e.t <= 0) {
         e.t = -1; _v.set(e.x, e.y, e.z);
         this.explosion(_v, { scale: e.s, color: e.color, quiet: true });
-        if (this.ctx.camera) this.shake(0.22, 0.2);
+        if (this.ctx.camera) this.shake(0.22 * this._P().explosionShake, 0.2, 'blast');
       }
     }
 
@@ -344,25 +372,13 @@ export const fx = {
     this._updateTrails(dt);
     this.debrisPool.update(dt);
 
-    // speed lines and dust
-    const rail = ctx.rail, cfg = ctx.config?.rail;
-    const base = rail?.baseSpeed ?? 40, bs = cfg?.boostSpeed ?? 75;
-    const spd = rail ? clamp((rail.speed - base) / Math.max(1, bs - base), 0, 1) : 0;
-    const auto = Math.max(spd, ctx.player?.isBoosting ? 1 : 0) * 0.9;
-    const target = Math.max(this._speedManual, auto);
-    this._speedAmt += (target - this._speedAmt) * (1 - Math.exp(-(target > this._speedAmt ? 8 : 4) * dt));
-    const railSpeed = rail?.speed ?? 40;
-    this.speedField.set(cam.position, this._speedAmt * 0.95, 8 + this._speedAmt * 16);
-    this.speedField.uniforms.uAlpha.value = 0.22 + 0.4 * this._speedAmt;
-    this.dust.set(cam.position, 1, 0.4 + railSpeed * 0.018);
-
     this.alpha.update(dt);
     this.add.update(dt);
   },
 
   stats() {
-    return { addSpawnedLastFrame: this.add?.spawnedFrame, debris: this.debrisPool?.active, trauma: +this._trauma.toFixed(2), speedAmt: +this._speedAmt.toFixed(2), trails: this.trails.filter((t) => t.active).length };
+    return { addSpawnedLastFrame: this.add?.spawnedFrame, debris: this.debrisPool?.active, trails: this.trails.filter((t) => t.active).length };
   },
 
-  dispose() { this.add?.dispose(); this.alpha?.dispose(); this.debrisPool?.dispose(); this.speedField?.dispose(); this.dust?.dispose(); },
+  dispose() { this.add?.dispose(); this.alpha?.dispose(); this.debrisPool?.dispose(); },
 };
