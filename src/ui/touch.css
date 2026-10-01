@@ -1,0 +1,136 @@
+/* Touch controls (src/ui/touch.js). Only the touch layer and the body.touch rules below exist on touch devices, nothing here
+   touches the desktop. The layer is one full screen element that owns every finger: the stick is drawn where the left thumb
+   lands, the buttons sit in the right cluster. Sizes scale with --ts (set by touch.js from the viewport height, 1 at 390 px).
+   Plain translucent fills and hairline rings, no backdrop blur and no blend modes, so it costs next to nothing on a phone. */
+
+body.touch #app, body.touch #app canvas {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* #ui-root > * turns pointer events on for every child, so the layer needs the id to switch them off again while it is hidden */
+#ui-root > .tctl { position: absolute; inset: 0; z-index: 12; pointer-events: none; }
+#ui-root > .tctl.on { pointer-events: auto; }
+.tctl {
+  --teal: #46e6d2;
+  --amber: #ffb02e;
+  --gold: #ffd777;
+  --white: #eef8f7;
+  --mute: rgba(190, 224, 222, 0.78);
+  --ts: 1;
+  --tctl-a: 1;
+  font-family: 'Avenir Next', 'Futura', 'Century Gothic', 'Helvetica Neue', 'Segoe UI', 'Trebuchet MS', Arial, sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--white);
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+}
+.tctl *, .tctl *::before, .tctl *::after { box-sizing: border-box; pointer-events: none; }
+
+/* ------------------------------------------------------------------ floating stick */
+.tctl-st { position: absolute; left: 0; top: 0; width: 0; height: 0; opacity: 0; transition: opacity 0.3s ease; will-change: transform, opacity; }
+.tctl-st.on { opacity: var(--tctl-a); transition: opacity 0.08s linear; }
+.tctl-ring, .tctl-knob, .tctl-dot { position: absolute; border-radius: 50%; }
+.tctl-ring {
+  width: calc(var(--ts) * 112px); height: calc(var(--ts) * 112px);
+  left: calc(var(--ts) * -56px); top: calc(var(--ts) * -56px);
+  border: 1.5px solid rgba(70, 230, 210, 0.6);
+  background: radial-gradient(circle, rgba(70, 230, 210, 0.05) 0, rgba(70, 230, 210, 0.13) 100%);
+}
+.tctl-knob {
+  width: calc(var(--ts) * 50px); height: calc(var(--ts) * 50px);
+  left: calc(var(--ts) * -25px); top: calc(var(--ts) * -25px);
+  border: 1.5px solid rgba(238, 248, 247, 0.85);
+  background: radial-gradient(circle at 50% 40%, rgba(180, 255, 245, 0.42), rgba(70, 230, 210, 0.3));
+  box-shadow: 0 0 10px rgba(70, 230, 210, 0.35);
+  will-change: transform;
+}
+/* the idle hint for the first seconds: where the left thumb goes */
+.tctl-ghost {
+  position: absolute; left: 21%; top: 66%;
+  width: calc(var(--ts) * 112px); height: calc(var(--ts) * 112px);
+  margin: calc(var(--ts) * -56px) 0 0 calc(var(--ts) * -56px);
+  border: 1.5px dashed rgba(70, 230, 210, 0.5); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: calc(var(--ts) * 10px); color: var(--mute);
+  opacity: 0; transition: opacity 0.6s ease;
+}
+.tctl-ghost.on { opacity: calc(var(--tctl-a) * 0.75); }
+
+/* ------------------------------------------------------------------ right cluster */
+/* The cluster origin is its bottom right corner. Each button gives its centre (--x from the right, --y from the bottom) and
+   radius (--r) in px at scale 1. */
+.tctl-cl { position: absolute; right: env(safe-area-inset-right, 0px); bottom: env(safe-area-inset-bottom, 0px); width: 0; height: 0; opacity: var(--tctl-a); }
+.tctl-b {
+  position: absolute;
+  width: calc(var(--r) * 2px * var(--ts)); height: calc(var(--r) * 2px * var(--ts));
+  right: calc((var(--x) - var(--r)) * 1px * var(--ts)); bottom: calc((var(--y) - var(--r)) * 1px * var(--ts));
+  border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border: 1.5px solid var(--c, rgba(70, 230, 210, 0.75));
+  background: rgba(4, 18, 26, 0.46);
+  color: var(--white);
+  font-size: calc(var(--ts) * var(--fs, 10px));
+  line-height: 1.1;
+  text-shadow: 0 1px 2px rgba(2, 10, 22, 0.95), 0 0 3px rgba(2, 10, 22, 0.8);
+  transition: transform 0.07s ease-out, background-color 0.07s linear, box-shadow 0.07s linear;
+}
+.tctl-b small { font-size: 0.86em; letter-spacing: 0.08em; font-weight: 500; opacity: 0.92; }
+.tctl-b b { font-weight: 700; font-size: 1.5em; line-height: 1; letter-spacing: 0; }
+.tctl-b.k-fire { --r: 46; --x: 78; --y: 76; --fs: 14px; --c: rgba(70, 230, 210, 0.9); background: rgba(6, 60, 62, 0.5); }
+.tctl-b.k-bomb { --r: 24; --x: 46; --y: 166; --fs: 10.5px; --c: rgba(255, 176, 46, 0.9); }
+.tctl-b.k-rollR { --r: 24; --x: 112; --y: 188; --c: rgba(238, 248, 247, 0.6); --fs: 11.5px; }
+.tctl-b.k-rollL { --r: 24; --x: 180; --y: 188; --c: rgba(238, 248, 247, 0.6); --fs: 11.5px; }
+.tctl-b.k-boost { --r: 26; --x: 168; --y: 120; --fs: 10.5px; --c: rgba(255, 215, 119, 0.9); }
+.tctl-b.k-brake { --r: 26; --x: 184; --y: 50; --fs: 10.5px; --c: rgba(150, 200, 255, 0.85); }
+.tctl-b.on {
+  transform: scale(0.93);
+  border-width: 2.5px;
+  background: linear-gradient(var(--tint, rgba(70, 230, 210, 0.42)), var(--tint, rgba(70, 230, 210, 0.42))), rgba(4, 18, 26, 0.6);
+  box-shadow: 0 0 14px var(--c), inset 0 0 12px rgba(255, 255, 255, 0.16);
+}
+.tctl-b.k-bomb { --tint: rgba(255, 176, 46, 0.4); }
+.tctl-b.k-boost { --tint: rgba(255, 215, 119, 0.4); }
+.tctl-b.k-brake { --tint: rgba(150, 200, 255, 0.38); }
+.tctl-b.k-fire { --tint: rgba(70, 230, 210, 0.5); }
+.tctl-b.k-rollL, .tctl-b.k-rollR { --tint: rgba(238, 248, 247, 0.34); }
+
+/* ------------------------------------------------------------------ pause: top centre, 44 px target, small glyph */
+.tctl-pause {
+  position: absolute; left: 50%; top: calc(max(env(safe-area-inset-top, 0px), 0px) + 2px);
+  width: 44px; height: 44px; margin-left: -22px;
+  display: flex; align-items: center; justify-content: center;
+  opacity: max(var(--tctl-a), 0.4);
+}
+/* the pause button belongs to flight: with a menu up (layer off) it is gone, not a ghost behind the menu */
+.tctl:not(.on) .tctl-pause { opacity: 0; }
+.tctl-pause i {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1.5px solid rgba(238, 248, 247, 0.5); background: rgba(4, 18, 26, 0.34);
+  transition: transform 0.07s ease-out, background-color 0.07s linear;
+}
+.tctl-pause i::before, .tctl-pause i::after { content: ''; display: block; width: 3px; height: 11px; border-radius: 1px; background: var(--white); opacity: 0.85; }
+.tctl-pause.on i { transform: scale(0.9); background: rgba(70, 230, 210, 0.4); border-color: var(--teal); }
+
+/* ------------------------------------------------------------------ short landscape (a phone in a browser tab, 260 to 340 px tall)
+   One compact block in the corner, every button at least 44 px (FIRE 68), at scale 1. Its width stays inside the 175 px that remain of
+   the right 30 percent once the notch inset is taken off, so the HUD panels beside it never meet it. touch.js sets --ts to 1 here. */
+@media (max-height: 340px) and (orientation: landscape) {
+  .tctl-b { letter-spacing: 0.05em; }
+  .tctl-b.k-fire  { --r: 34; --x: 40;  --y: 40;  --fs: 13px; }
+  .tctl-b.k-bomb  { --r: 23; --x: 40;  --y: 106; }
+  .tctl-b.k-boost { --r: 23; --x: 100; --y: 34; }
+  .tctl-b.k-brake { --r: 23; --x: 150; --y: 34; }
+  .tctl-b.k-rollR { --r: 23; --x: 100; --y: 92; }
+  .tctl-b.k-rollL { --r: 23; --x: 150; --y: 92; }
+}

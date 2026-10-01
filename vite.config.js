@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 export default defineConfig({
   base: './',
   build: {
-    target: 'es2022',
+    target: 'safari15',
     chunkSizeWarningLimit: 1400,
     rollupOptions: {
       input: {

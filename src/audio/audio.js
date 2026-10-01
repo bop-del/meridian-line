@@ -4,7 +4,10 @@
 // Music style (the whole game's music follows it): audio.musicStyles() -> [{id, name}], audio.getMusicStyle(),
 // audio.setMusicStyle(id) (persists, applies live, emits 'audio:style' {id}). Old aliases: titleVariants(),
 // getTitleVariant(), setTitleVariant(id).
-// Unlock: audio.unlocked (bool), audio.unlock() (call from a user gesture), event 'audio:unlocked' fires once.
+// Unlock: audio.unlocked (bool), audio.unlock() (call from a user gesture), event 'audio:unlocked' fires once. Window listeners
+// (pointerdown/up, touchstart/end, click, keydown) stay armed until the context runs and are re-armed when it is suspended or
+// interrupted. Phones: navigator.audioSession.type = 'playback' before the context exists, the context is suspended while the page
+// is hidden, and a context that stays out of 'running' for ~0.8 s mid run pauses the game ('ui:pause'). audio.diagLine() feeds ?phonediag=1.
 // Debug: audio.debug() -> {style, track, playing, intensity, loop, ...}, audio.stats() -> {duck, spatial, voices, engineNodes, ...}.
 // Audio depth: mix.js (buses, master chain, music ducking), spatial.js (pooled PannerNode slots for sfx with a `position`
 // option), engine.js (the continuous engine voice), voice.js (pilot voice barks and data blips tied to comm lines). Values live in
@@ -19,8 +22,16 @@ import { Mix } from './mix.js';
 import { Spatial } from './spatial.js';
 import { Engine } from './engine.js';
 import { Voice } from './voice.js';
+import { device } from '../core/device.js';
 
-const MAX_VOICES = 30;
+// Phones get a smaller voice budget (20 instead of 30): less mixing work on the audio thread, and the dropped voices are the
+// low priority repeats (prio below 3), so warnings, bombs and explosions still always play.
+const MAX_VOICES = device.touch ? 20 : 30;
+// Events that count as a user gesture somewhere. iOS Safari accepts touchend, pointerup, click and keydown for resume(), not
+// pointerdown or touchstart, so all of them are listened for and the listeners stay until the context really runs.
+const UNLOCK_EVENTS = ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'click', 'keydown'];
+// Phones only: how long the context may stay out of 'running' while the game is playing before the game pauses itself.
+const STALL_PAUSE_S = 0.8;
 const DEFAULT_META = { gap: 0.04, max: 4, prio: 2 };
 const LEVEL_MUSIC = ['foundry', 'cinder', 'thalassa'];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -69,18 +80,63 @@ export const audio = {
   _style: null,
   intensityOverride: null,
   _resumeAt: 0,
+  lastUnlockEvent: 'none',   // name of the last gesture event that tried to unlock the context (phonediag)
+  audioSessionType: 'n/a',   // navigator.audioSession.type after we set it, or n/a where the API does not exist
+  _armed: false,
+  _stallSince: 0,
 
   init(ctx) {
     this.ctx = ctx;
     if (!this.hooked) {
       this.hooked = true;
-      const unlock = () => {
+      this._onGesture = (e) => {
+        this.lastUnlockEvent = e.type;
         this.unlock();
-        if (this.ac && this.ac.state === 'running') for (const ev of ['pointerdown', 'keydown', 'touchstart', 'click']) window.removeEventListener(ev, unlock, true);
+        // listeners go away only once the context is running; if it is interrupted or suspended later they are armed again
+        if (this.ac && this.ac.state === 'running') this.disarmUnlock();
       };
-      for (const ev of ['pointerdown', 'keydown', 'touchstart', 'click']) window.addEventListener(ev, unlock, true);
+      this.armUnlock();
+      document.addEventListener('visibilitychange', () => this.onVisibility());
       this.subscribe(ctx.events);
     }
+  },
+
+  armUnlock() {
+    if (this._armed) return;
+    this._armed = true;
+    for (const ev of UNLOCK_EVENTS) window.addEventListener(ev, this._onGesture, true);
+  },
+
+  disarmUnlock() {
+    if (!this._armed) return;
+    this._armed = false;
+    for (const ev of UNLOCK_EVENTS) window.removeEventListener(ev, this._onGesture, true);
+  },
+
+  /** Page hidden or shown. On phones the context is suspended while hidden (iOS may otherwise keep playing under the 'playback' session) and resumed when visible. */
+  onVisibility() {
+    const ac = this.ac;
+    if (!ac) return;
+    if (document.hidden) {
+      if (device.touch && ac.state === 'running') ac.suspend().catch(() => {});
+      return;
+    }
+    this.retryResume();
+  },
+
+  /** Try to bring the context back without a gesture (works after a short interruption, fails until a tap otherwise) and keep the gesture listeners armed. */
+  retryResume() {
+    const ac = this.ac;
+    if (!ac || ac.state === 'running') return;
+    this.lastUnlockEvent = 'retry';
+    this.armUnlock();
+    ac.resume().catch(() => {});
+  },
+
+  /** One-line state for the ?phonediag=1 overlay. */
+  diagLine() {
+    const ac = this.ac;
+    return `${ac ? ac.state : 'none'} ${ac ? ac.sampleRate : '-'}Hz session=${this.audioSessionType} last=${this.lastUnlockEvent}`;
   },
 
   reset() {
@@ -95,6 +151,12 @@ export const audio = {
     if (!this.gesture) return false;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return false;
+    // iOS 17 and later: 'playback' keeps the game audible with the ringer switch on silent. Must be set before the context exists.
+    try {
+      const as = navigator.audioSession;
+      if (as && (device.touch || device.ios)) { as.type = 'playback'; this.audioSessionType = as.type; }
+      else if (as) this.audioSessionType = as.type;
+    } catch (e) { /* unsupported value or API */ }
     let ac;
     try { ac = new AC({ latencyHint: 'interactive' }); } catch (e) { return false; }
     this.ac = ac;
@@ -104,7 +166,10 @@ export const audio = {
     this.music_ = new MusicEngine(ac, this.musicLP, { styleId: this.getMusicStyle() });
     this.eng = new Engine(ac, this.mix.engine);
     this.voice = new Voice(ac, this.mix.voice);
-    ac.addEventListener?.('statechange', () => { if (ac.state === 'running') this.markUnlocked(); });
+    ac.addEventListener?.('statechange', () => {
+      if (ac.state === 'running') { this.markUnlocked(); this.disarmUnlock(); this._stallSince = 0; }
+      else { this.armUnlock(); if (!document.hidden) this.retryResume(); }
+    });
     return true;
   },
 
@@ -131,7 +196,19 @@ export const audio = {
     this.gesture = true;
     if (!this.ensure()) return Promise.resolve(false);
     if (this.ac.state === 'running') { this.markUnlocked(); return Promise.resolve(true); }
+    this.kick();
     return this.ac.resume().then(() => { if (this.ac.state === 'running') this.markUnlocked(); return this.unlocked; }).catch(() => false);
+  },
+
+  /** Older iOS only starts output once something was played inside the gesture: a one sample silent buffer does it. Harmless elsewhere. */
+  kick() {
+    try {
+      const ac = this.ac;
+      const src = ac.createBufferSource();
+      src.buffer = ac.createBuffer(1, 1, ac.sampleRate);
+      src.connect(ac.destination);
+      src.start(0);
+    } catch (e) { /* ignore */ }
   },
 
   /** The context is running after a gesture: start the remembered music and tell the UI once. */
@@ -153,7 +230,11 @@ export const audio = {
     if (!def) return null;
     if (!this.ensure()) return null;
     const ac = this.ac;
-    if (ac.state === 'suspended') { const n = performance.now(); if (n - this._resumeAt > 1000) { this._resumeAt = n; ac.resume().catch(() => {}); } return null; }
+    if (ac.state !== 'running') {   // 'suspended', or 'interrupted' on iOS (calls, Siri, Control Center)
+      const n = performance.now();
+      if (n - this._resumeAt > 1000) { this._resumeAt = n; ac.resume().catch(() => {}); }
+      return null;
+    }
     const meta = SFX_META[name] || DEFAULT_META;
     const now = performance.now() / 1000;
     if (now - (this.last[name] ?? -9) < meta.gap) return null;
@@ -274,7 +355,9 @@ export const audio = {
 
   // ==== per frame
   update(dt, ctx) {
+    if (ctx.phonediag && !this._diagReg && ctx.phonediag.add) { this._diagReg = true; ctx.phonediag.add('audio', () => this.diagLine()); }
     if (!this.ac) return;
+    this.watchStall(ctx);
     this.eng.update(dt, this.engineState(ctx));
     this.mix.applyLevels(false);
     this.mix.tick();
@@ -291,6 +374,21 @@ export const audio = {
       if (st.phase === 'paused') this.pauseMusic(true);
       else if (prev === 'paused') this.pauseMusic(false);
     }
+  },
+
+  /**
+   * Phones: when the context has been running before and then stays out of 'running' (interrupted by a call, Siri or the lock
+   * screen) for STALL_PAUSE_S while the game is playing, pause through the normal path (events 'ui:pause'). The pause menu is
+   * the tap-to-resume prompt: its tap is a gesture, so the armed listeners resume the context. The delay keeps a RESUME tap
+   * from pausing again while resume() is still resolving. Desktop never pauses for audio.
+   */
+  watchStall(ctx) {
+    if (!device.touch) return;
+    const ac = this.ac;
+    if (ac.state === 'running' || !this.unlocked || document.hidden || ctx.state.phase !== 'playing') { this._stallSince = 0; return; }
+    const now = performance.now() / 1000;
+    if (!this._stallSince) { this._stallSince = now; this.armUnlock(); return; }
+    if (now - this._stallSince > STALL_PAUSE_S) { this._stallSince = 0; ctx.events.emit('ui:pause'); }
   },
 
   // ==== ducking and voices

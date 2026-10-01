@@ -1,6 +1,6 @@
 # Architecture
 
-A short tour of how MERIDIAN LINE is put together. Everything is plain ES modules on top of three.js r170. There are no build-time assets: geometry comes from primitives, textures from canvas, sound and music from WebAudio.
+A short tour of how MERIDIAN LINE is put together. Everything is plain ES modules on top of three.js r170. There are no model, texture or audio assets: geometry comes from primitives, textures from canvas, sound and music from WebAudio (the only images are the Home Screen icon and the link preview picture).
 
 ## Coordinates: the rail and the world
 
@@ -39,7 +39,7 @@ Every module is a singleton object with optional `init(ctx, uiRoot)`, `reset(ctx
 
 | Module | File | Role |
 |---|---|---|
-| input | `src/core/input.js` | Keyboard, gamepad and optional mouse aim. Produces one snapshot per frame: held flags, one-frame pulses, smoothed axes. |
+| input | `src/core/input.js` | Keyboard, gamepad, touch (`input.touch`, merged like a gamepad) and optional mouse aim. Produces one snapshot per frame: held flags, one-frame pulses, smoothed axes. |
 | rail | `src/core/rail.js` | The anchor described above. |
 | world | `src/world/world.js` | Sky, lights, fog, streamed scenery, obstacles, pickups and the level script runner. |
 | enemies | `src/enemies/enemies.js` | Spawn API, formations, boss spawning, culling, difficulty scaling. |
@@ -133,7 +133,7 @@ Modules talk through `ctx.events`. Names are `domain:action`. The ones in use:
 
 - **Speakers** (`SABLE`, `VEX`, `FERRO`, `PIP`, `LUMEN`, `CONTROL`, `REGENT`): VEX, FERRO and the enemy AI REGENT use a portrait comm box. PIP (the escort drone), LUMEN (ship systems), CONTROL (Meridian Control dispatch) and SABLE use the text readout strip: a monospace tag, a left rule and typed text, smaller and in the bottom-right corner.
 - **Hints** are short control tips: `ctx.ui.hint('FLIP: Q or E deflects incoming fire')` shows a small prompt line.
-- **HUD layout**: lives top-left, score and the KILLS counter top-centre with the boss bar under them, shield as a vertical bar on the left edge with boost beside it, bombs and pulse level below, the TRANSPONDER LINK readout top-right (one row per escort in trouble, the bar is the time left), comm and readout strips bottom-right.
+- **HUD layout** (desktop; on touch the shield and boost run along the top, the comm panel sits under the score and nothing overlaps the stick zone or the button cluster, see the touch block in `style.css`): lives top-left, score and the KILLS counter top-centre with the boss bar under them, shield as a vertical bar on the left edge with boost beside it, bombs and pulse level below, the TRANSPONDER LINK readout top-right (one row per escort in trouble, the bar is the time left), comm and readout strips bottom-right.
 - **Letter rank** (`rankOf` in `src/ui/screens.js`): S, A, B or C from a composite of score against a per-level par, shield remaining, lives lost, time and escorts alive, shown as a large thin letter in a hairline frame.
 
 ## Rendering
@@ -153,7 +153,7 @@ Modules talk through `ctx.events`. Names are `domain:action`. The ones in use:
 
 ## Test hooks
 
-- URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?q=`, `?msaa=`, `?style=a|b|c|d` (music style, `?title=` is an alias), `?dvar=melodic|pressure|deep|hypno` (Techno mix), `?showcase=1` (autopilot route for recording, see [SHOWCASE.md](SHOWCASE.md)).
+- URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?q=`, `?msaa=`, `?style=a|b|c|d` (music style, `?title=` is an alias), `?dvar=melodic|pressure|deep|hypno` (Techno mix), `?showcase=1` (autopilot route for recording, see [SHOWCASE.md](SHOWCASE.md)). Also `?touch=1`, `?phonediag=1`, `?nofloat=1`, `?overlay=1`, `?nopost=1` and `?nooverlay=1`, described under Feel tuning and diagnostics below.
 - `window.__ctx` is the context above. `__ctx.game.advance(seconds)` steps the simulation without rendering.
 - `tools/` contains puppeteer-core scripts that drive system Chrome; see the README.
 
@@ -162,4 +162,6 @@ Modules talk through `ctx.events`. Names are `domain:action`. The ones in use:
 - The values that decide how the game feels (steering, camera, shake, hit-stop, speed effects) live in the `feel` registry, one group per file in `src/feel/`. Code reads `feel.p.<group>.<key>` every frame. `?tune=1` (or the FEEL TUNING entry in the pause menu) opens a panel with a slider per value, presets and a copy button. See [TUNING.md](TUNING.md).
 - `?telemetry=1` records frame time, camera lag and input latency (`window.__telemetry`). `tools/feelbot.mjs` drives scripted input and checks the numbers against `tools/feel-budgets.json`.
 - `?diag=1` counts frames that came out black on the real display, `?nopost=1` skips the post chain and `?nooverlay=1` removes the page overlays, to isolate rendering problems.
+- Phones: `src/core/device.js` reads the device once (`touch`, `ios`, `phone`, `portrait`) and sets classes on `<body>`. `?touch=1` forces touch mode on a desktop. `src/ui/touch.js` is a full-screen pointer layer with a floating stick and buttons that feeds `input.touch`, which `input.js` merges like a gamepad. `src/ui/rotate.js` shows the landscape prompt and pauses the run. On touch devices `tiers.js` starts at tier 1 (phones) or 2 (tablets) and only steps down, resizes are debounced and WebGL context loss is handled in `renderer.js` (the game pauses, `webglcontextrestored` rebuilds the targets). Without float render targets (`?nofloat=1` forces this) a cheap final pass replaces the post chain. The audio context unlocks on the gestures iOS accepts and sets `navigator.audioSession.type = 'playback'` so the silent switch does not mute the game. `?phonediag=1` shows a live overlay for real-device checks.
+- Start-up: `#boot` in `index.html` is plain HTML and CSS that paints before any script and is removed by `src/main.js` after the first two animation frames (test browsers skip the fade). `public/manifest.webmanifest` asks for fullscreen and landscape when the page is installed. `src/ui/installHint.js` draws a strip of three SVG steps (no screenshots of the system UI) that is always shown on the sound gate (pinned to the bottom) and on the rotate prompt, on iOS in a browser tab only, and disappears once the game runs from the Home Screen.
 - Adaptive quality changes are requested after a frame and applied before the next draw (a resize clears the canvas). A step down that does not speed frames up is undone and locked out for a while, because a 30 Hz display or browser energy saver caps the frame rate without the GPU being the limit.

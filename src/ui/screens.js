@@ -1,12 +1,16 @@
-// Full-screen menus: title, pause, game over, level complete, victory. Keyboard and mouse driven.
+// Full-screen menus: title, pause, game over, level complete, victory. Keyboard and mouse driven; on touch devices (device.touch) every
+// entry is also a plain tap target, the key legend gives way to a one-time "how to fly" card, and the dev-only FEEL TUNING entry is left out.
 import { h, setText, fmt } from './dom.js';
+import { device } from '../core/device.js';
+import { installHint } from './installHint.js';
 
 const DIFFS = ['easy', 'normal', 'hard'];
 const MISSIONS = ['OBSIDIAN FOUNDRY', 'THE CINDER BELT', 'THALASSA COAST'];   // play order, same as config.levels
 const fmtTime = (t) => { t = Math.max(0, Math.round(t || 0)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
 const VOL_KEY = 'meridian-line-volumes-v1';
 const MUTE_KEY = 'meridian-line-muted-v1';
-const isTouch = () => { try { return matchMedia('(pointer: coarse)').matches; } catch (e) { return false; } };
+const HELP_KEY = 'meridian-line-touchhelp-v1';   // set once the how-to-fly card has been dismissed
+const isTouch = () => device.touch;
 const SPEAKER_SVG = (muted) => '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
   + '<path d="M3.5 9.5h3.6L12 5.6v12.8l-4.9-3.9H3.5z" fill="currentColor" fill-opacity="0.25"/>'
   + (muted ? '<path d="M16 9.5l5 5M21 9.5l-5 5"/>' : '<path d="M15.5 9.2a4 4 0 0 1 0 5.6"/><path d="M18.3 6.6a7.7 7.7 0 0 1 0 10.8"/>') + '</svg>';
@@ -25,7 +29,7 @@ const CREDITS = [
   ['MUSIC AND SOUND', 'r'], ['Every note and every beep is synthesised live', 'n'],
   ['', 'gap'],
   ['BUILT WITH THREE.JS AND WEB AUDIO', 's'],
-  ['NO ASSET FILES WERE USED', 's'],
+  ['EVERYTHING IS DRAWN IN CODE', 's'],
   ['', 'gap'],
   ['FOR THE PILOTS WHO DID NOT COME BACK', 's'],
   ['', 'gap'],
@@ -118,6 +122,21 @@ export class Screens {
     input.addEventListener('input', () => { this.setVolume(key, input.value / 100); });
     row.addEventListener('mouseenter', () => this.setIndex(def, def.items.indexOf(item)));
     input.addEventListener('mousedown', () => this.setIndex(def, def.items.indexOf(item)));
+    if (device.touch) {
+      // a finger on the track jumps the thumb there and drags it (the native range input on iOS only moves by grabbing the thumb)
+      const at = (e) => {
+        const r = input.getBoundingClientRect(), tw = 28;
+        const v = Math.max(0, Math.min(1, (e.clientX - r.left - tw / 2) / Math.max(1, r.width - tw)));
+        input.value = String(Math.round(v * 100)); this.setVolume(key, v);
+      };
+      input.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse') return;
+        this.setIndex(def, def.items.indexOf(item));
+        try { input.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        at(e);
+      });
+      input.addEventListener('pointermove', (e) => { if (e.pointerType !== 'mouse' && input.hasPointerCapture?.(e.pointerId)) at(e); });
+    }
     def.items.push(item);
     return item;
   }
@@ -207,7 +226,7 @@ export class Screens {
     for (const b of this.speakers) {
       b.innerHTML = SPEAKER_SVG(this.muted);
       b.classList.toggle('muted', this.muted);
-      b.title = this.muted ? 'Sound off (click to turn on)' : 'Sound on (click to mute)';
+      b.title = this.muted ? 'Sound off (click or tap to turn on)' : 'Sound on (click or tap to mute)';
     }
     const it = this.defs.pause?.items.find((i) => i.kind === 'toggle');
     if (it) it.set(this.muted ? 'OFF' : 'ON');
@@ -250,8 +269,16 @@ export class Screens {
 
   // ==== sound gate
   openGate(on) {
+    const was = this.gate, el = this.defs.title?.el;
     this.gate = !!on;
-    this.defs.title?.el.classList.toggle('gated', this.gate);
+    el?.classList.toggle('gated', this.gate);
+    // The tap that dismisses the gate must not reach the title controls under it. Audio can unlock on the press, before the click
+    // arrives, so on touch the closed gate stays in place, invisible, until that click lands on it (or a moment passes).
+    if (!on && was && device.touch && el) {
+      el.classList.add('gate-absorb');
+      clearTimeout(this.absorbT);
+      this.absorbT = setTimeout(() => el.classList.remove('gate-absorb'), 1200);
+    }
   }
 
   // the first key, click or tap: unlock audio and start the title theme. The gesture is consumed.
@@ -327,6 +354,7 @@ export class Screens {
     const mnext = h('button', 'arrow', '>', mrow); mnext.type = 'button'; mnext.tabIndex = -1;
     mprev.addEventListener('click', () => this.cycleMusicStyle(-1));
     mnext.addEventListener('click', () => this.cycleMusicStyle(1));
+    if (device.touch) this.musicName.addEventListener('click', () => this.cycleMusicStyle(1));   // the arrows are hidden on a phone: the name is the button
 
     const leg = h('div', 'legend', null, d.el);
     const keys = [
@@ -337,7 +365,15 @@ export class Screens {
       const r = h('div', 'lg', null, leg);
       h('kbd', null, k, r); h('span', null, v, r);
     }
-    this.speakerButton(d.el, 'title-speaker');
+    if (device.touch) {
+      // no key legend on a phone: a small button reopens the one-time how-to-fly card. It shares a corner box with the sound button
+      // (display: contents on normal screens, a row in the bottom left corner on short ones, see style.css)
+      const tools = h('div', 'title-tools', null, d.el);
+      const hb = h('button', 'helpbtn', 'HOW TO FLY', tools);
+      hb.type = 'button'; hb.tabIndex = -1;
+      hb.addEventListener('click', (e) => { e.stopPropagation(); this.openHelp(false); });
+      this.speakerButton(tools, 'title-speaker');
+    } else this.speakerButton(d.el, 'title-speaker');
     this.buildGate(d.el);
     this.refreshDifficulty();
     this.refreshMission();
@@ -351,7 +387,18 @@ export class Screens {
     ic.innerHTML = SPEAKER_SVG(false);
     h('div', 'gate-main', isTouch() ? 'TAP FOR SOUND' : 'PRESS ANY KEY FOR SOUND', box);
     h('div', 'gate-sub', isTouch() ? 'HEADPHONES RECOMMENDED' : 'OR CLICK  |  HEADPHONES RECOMMENDED', box);
-    g.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.passGate(); });
+    const hint = installHint({ bottom: true });   // iPhone and iPad in a browser tab only, pinned to the bottom of the gate
+    if (hint) { g.appendChild(hint); g.classList.add('has-hint'); }
+    // A mouse passes the gate on press. A finger passes it on release (the click): iOS only accepts pointerup, touchend and click as
+    // the gesture that may start audio, and waiting for the click keeps the tap from landing on the title controls under the gate.
+    g.addEventListener('pointerdown', (e) => { e.stopPropagation(); if (e.pointerType === 'mouse' || !device.touch) this.passGate(); });
+    const unlock = () => this.ctx.audio?.unlock?.();
+    g.addEventListener('pointerup', unlock);
+    g.addEventListener('touchend', unlock, { passive: true });
+    g.addEventListener('click', (e) => {
+      e.stopPropagation(); unlock(); this.passGate();
+      clearTimeout(this.absorbT); this.defs.title?.el.classList.remove('gate-absorb');
+    });
   }
 
   setDifficulty(k) {
@@ -387,8 +434,10 @@ export class Screens {
     this.missionHint.textContent = `${this.mission + 1}. ${MISSIONS[this.mission]}`;
   }
 
-  startGame() {
+  startGame(skipHelp = false) {
     if (performance.now() < this.busyUntil) return;
+    // first flight on a touch device: show what each thumb does, a tap on the card starts the game
+    if (device.touch && !skipHelp && !this.helpSeen()) { this.ctx.audio?.unlock?.(); this.sfx('uiSelect'); this.guard(300); this.openHelp(true); return; }
     this.guard(900);
     this.ctx.audio?.unlock?.();
     this.sfx('uiSelect');
@@ -403,21 +452,80 @@ export class Screens {
     const p = h('div', 'panel', null, d.el);
     h('div', 'panel-title', 'PAUSED', p);
     h('div', 'panel-sub', 'FLIGHT ON HOLD', p);
+    // two groups inside one menu: the buttons and the audio block. They are display: contents on a desktop (one column, as before) and
+    // sit side by side on a phone, where one column would not fit the height.
     const menu = h('div', 'menu', null, p);
-    this.button(d, menu, 'RESUME', () => this.doResume());
-    this.button(d, menu, 'RESTART MISSION', () => { this.guard(); this.emit('ui:restart'); });
-    this.button(d, menu, 'QUIT TO TITLE', () => { this.guard(); this.emit('ui:quitToTitle'); });
-    this.button(d, menu, 'FEEL TUNING', () => { this.guard(); this.emit('ui:tune'); });
-    h('div', 'sep', 'AUDIO', menu);
-    this.slider(d, menu, 'MASTER', 'master');
-    this.slider(d, menu, 'MUSIC', 'music');
-    this.slider(d, menu, 'SFX', 'sfx');
-    this.option(d, menu, 'MUSIC STYLE', 'cycle', (dir) => this.cycleMusicStyle(dir));
-    this.option(d, menu, 'SOUND', 'toggle', () => this.setMuted(!this.muted));
+    const ga = h('div', 'mgroup mg-main', null, menu);
+    const gb = h('div', 'mgroup mg-audio', null, menu);
+    this.button(d, ga, 'RESUME', () => this.doResume(), 'resume');
+    this.button(d, ga, 'RESTART MISSION', () => { this.guard(); this.emit('ui:restart'); });
+    this.button(d, ga, 'QUIT TO TITLE', () => { this.guard(); this.emit('ui:quitToTitle'); });
+    if (device.touch) this.button(d, ga, 'HOW TO FLY', () => { this.guard(); this.openHelp(false); });
+    else this.button(d, ga, 'FEEL TUNING', () => { this.guard(); this.emit('ui:tune'); });
+    h('div', 'sep', 'AUDIO', gb);
+    this.slider(d, gb, 'MASTER', 'master');
+    this.slider(d, gb, 'MUSIC', 'music');
+    this.slider(d, gb, 'SFX', 'sfx');
+    this.option(d, gb, 'MUSIC STYLE', 'cycle', (dir) => this.cycleMusicStyle(dir));
+    this.option(d, gb, 'SOUND', 'toggle', () => this.setMuted(!this.muted));
     this.speakerButton(p, 'pause-speaker');
     this.refreshMute();
     this.refreshMusicStyle();
-    h('div', 'hint', 'ARROWS SELECT  |  ENTER CONFIRM  |  ESC RESUME', p);
+    h('div', 'hint', device.touch ? 'TAP AN ENTRY' : 'ARROWS SELECT  |  ENTER CONFIRM  |  ESC RESUME', p);
+  }
+
+  // ==== how to fly: what each thumb does. Shown once before the first flight on touch, and from HOW TO FLY buttons (title, pause).
+  helpSeen() { try { return localStorage.getItem(HELP_KEY) === '1'; } catch (e) { return false; } }
+
+  buildHelp() {
+    const el = (this.helpEl = h('div', 'touch-help', null, this.root));
+    const box = h('div', 'th-box', null, el);
+    h('div', 'th-title', 'HOW TO FLY', box);
+    const cols = h('div', 'th-cols', null, box);
+    const left = h('div', 'th-col th-left', null, cols);
+    const st = h('div', 'th-stick', null, left);
+    h('i', 'ring', null, st); h('i', 'knob', null, st);
+    h('div', 'th-h', 'LEFT THUMB', left);
+    h('div', 'th-big', 'STEER', left);
+    h('div', 'th-t', 'Touch and drag anywhere on the left. The reticle stays centred. Hold FIRE and the volley finds targets by itself.', left);
+    const right = h('div', 'th-col th-right', null, cols);
+    h('div', 'th-h', 'RIGHT THUMB', right);
+    const rows = [
+      ['fire', 'FIRE', 'Hold to charge a lock-on volley, release to send it'],
+      ['bomb', 'BOMB', 'Damages everything nearby'],
+      ['boost', 'BOOST', 'Hold to speed up'],
+      ['brake', 'BRAKE', 'Hold to slow down'],
+      ['roll', 'ROLL', 'L or R: flip to dodge and deflect fire'],
+    ];
+    for (const [cls, name, txt] of rows) {
+      const r = h('div', 'th-row', null, right);
+      h('i', 'th-ic ic-' + cls, name === 'ROLL' ? 'L R' : '', r);
+      h('b', 'th-n', name, r);
+      h('span', 'th-d', txt, r);
+    }
+    this.helpFoot = h('div', 'th-foot', 'TAP ANYWHERE', box);
+    h('div', 'th-pause', 'PAUSE IS THE SMALL BUTTON AT THE TOP CENTRE', box);
+    el.addEventListener('click', (e) => { e.stopPropagation(); this.closeHelp(); });
+  }
+
+  openHelp(first) {
+    if (!this.helpEl) this.buildHelp();
+    this.helpFirst = !!first;
+    this.helpFoot.textContent = first ? 'TAP ANYWHERE TO FLY' : 'TAP ANYWHERE TO CLOSE';
+    this.helpOpen = true;
+    this.helpEl.classList.add('on');
+    this.helpAt = performance.now();
+  }
+
+  closeHelp() {
+    if (!this.helpOpen || performance.now() - this.helpAt < 350) return;   // the tap that opened it must not close it
+    this.helpOpen = false;
+    this.helpEl.classList.remove('on');
+    try { localStorage.setItem(HELP_KEY, '1'); } catch (e) { /* ignore */ }
+    this.busyUntil = 0;
+    this.guard(250);
+    if (this.helpFirst && this.current === 'title') setTimeout(() => { this.busyUntil = 0; this.startGame(true); }, 260);
+    this.helpFirst = false;
   }
 
   doResume() { this.guard(); this.emit('ui:resume'); }
@@ -617,6 +725,11 @@ export class Screens {
 
   // ==== input
   onKey(e) {
+    if (this.helpOpen) {   // any key closes the how-to-fly card
+      if (!['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab'].includes(e.key) && !e.repeat) this.closeHelp();
+      e.preventDefault(); e.stopPropagation();
+      return;
+    }
     const name = this.current;
     if (!name || e.ctrlKey || e.metaKey || e.altKey) return;
     const d = this.defs[name];

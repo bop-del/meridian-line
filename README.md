@@ -2,13 +2,15 @@
 
 An on-rails 3D space shooter for the browser. You fly the Vanta Mk II with NINTH FLIGHT through the Meridian Reach, a chain of colonised worlds, against the Halvane Dominion and the ancient AI that rules it, the Regent.
 
-Built with three.js (r170) and Vite. Everything is procedural: geometry from primitives, textures from canvas, sound effects and music synthesised with WebAudio. The game itself loads no image, model or audio files (the screenshots in `docs/` are only for this page).
+Built with three.js (r170) and Vite. Everything is procedural: geometry from primitives, textures from canvas, sound effects and music synthesised with WebAudio. The game itself loads no model, texture or audio files, everything is drawn and synthesised in code. The only image files are the Home Screen icon, the link preview picture and the screenshots in `docs/`.
 
 **Play it:** https://bop-del.github.io/meridian-line/
 
 ![Title screen](docs/title.jpg)
 
 ![Thalassa Coast gameplay](docs/play.jpg)
+
+![On a phone: floating stick on the left thumb, FIRE, BOOST, BRAKE, BOMB and roll buttons on the right](docs/phone.jpg)
 
 ## Controls
 
@@ -25,6 +27,12 @@ Built with three.js (r170) and Vite. Everything is procedural: geometry from pri
 | Pause menu | Arrows select, Left and Right change a value. Music style and the sound switch are in the AUDIO block |
 
 A gamepad works too: sticks to steer and aim, triggers and shoulders for fire, boost, brake and roll, Start to pause.
+
+**On a phone** (landscape only, a portrait phone shows a rotate prompt): the left thumb steers with a floating stick that appears where you touch. The right thumb has FIRE (hold to charge the lock-on volley), BOOST, BRAKE, BOMB and two barrel roll buttons. The pause button sits at the top centre. A HOW TO FLY card explains the controls on the first start, and opens again from the title and the pause menu. Sound works with the silent switch on (iOS 17 and later), and the game pauses when a call or a locked screen interrupts the audio.
+
+**Full screen on iPhone and iPad:** Safari has no fullscreen button, so use Share, then Add to Home Screen. While the game runs in a browser tab, the sound gate and the rotate prompt show three drawn steps for this. They disappear once the game is installed. The web manifest asks for landscape and the rotate prompt covers the rest. A plain start-up screen shows while the game loads.
+
+Checked on iPhone 12 and 14 class screens by emulation and the iOS simulator, and by hand on an iPhone. Open `?phonediag=1` to see the frame rate, quality tier and audio state on screen.
 
 Control tips appear as a small prompt line at the bottom of the screen.
 
@@ -77,10 +85,10 @@ The build uses relative asset paths (`base: './'`), so the contents of `dist/` c
 
 ## Project layout
 
-    src/core/       game loop and phases, input, rail, collision, camera rig, the feel registry
+    src/core/       game loop and phases, input, rail, collision, camera rig, the feel registry, device facts (device.js)
     src/cinema/     level intro flythroughs, signature camera moments and camera helpers (the takeover director is src/fx/cinema.js)
     src/feel/       the tunable values (handling, impact, speed, look, sky, atmosphere) and their presets
-    src/dev/        the ?tune=1 tuning panel and the ?diag=1 black frame detector
+    src/dev/        the ?tune=1 tuning panel, the ?diag=1 black frame detector and the ?phonediag=1 overlay
     src/entities/   the player controller and projectiles
     src/world/      levels, sky and clouds, ocean, scenery, obstacles, pickups (shield cells, capacitor), level script runner
     src/world/atmosphere/  ambient particles, boss hero lights, the explosion flash guard, Foundry floor and Cinder dust ring
@@ -90,7 +98,7 @@ The build uses relative asset paths (`base: './'`), so the contents of `dist/` c
     src/render/     renderer and post chain (passes/), effect quality tiers (tiers.js), grade shader
     src/fx/         pooled particles, explosions, debris, impact feedback (shake, hit-stop), speed streaks and FOV kick
     src/showcase/   the ?showcase=1 autopilot and its extra camera shots
-    src/ui/         HUD, menus, comm box and text readouts, portraits
+    src/ui/         HUD, menus, comm box and text readouts, portraits, touch controls (touch.js), the rotate prompt and the Add to Home Screen steps (installHint.js)
     src/audio/      synth, sound effects, sequenced music, the four music styles, mix bus, positioned sound, engine and radio voices
     music-lab.html  audition every track of every music style
     sfx-lab.html    audition every sound effect (old versus new, rapid fire, measured numbers, a family of shots in a row)
@@ -101,7 +109,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the modules fit togethe
 
 ## Testing helpers
 
-URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?style=a|b|c|d` (music style, also `?title=`), `?dvar=melodic|pressure|deep|hypno` (balance of the Techno style, default deep), `?tune=1` (live tuning panel, also opened by FEEL TUNING in the pause menu, see [docs/TUNING.md](docs/TUNING.md)), `?telemetry=1`, `?diag=1` (with `?report=<port>` it posts black frame reports to a local receiver on that port), `?showcase=1` (a self-playing demo, with `?hud=0`, `?loop=1` and `?bars=0`, see [docs/SHOWCASE.md](docs/SHOWCASE.md)), `?nopost=1`, `?nooverlay=1`, `?q=0..5` (render quality), `?noadapt`. `window.__ctx` exposes the game context, and `__ctx.game.advance(seconds)` steps the simulation deterministically.
+URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|normal|hard`, `?style=a|b|c|d` (music style, also `?title=`), `?dvar=melodic|pressure|deep|hypno` (balance of the Techno style, default deep), `?tune=1` (live tuning panel, also opened by FEEL TUNING in the pause menu, see [docs/TUNING.md](docs/TUNING.md)), `?telemetry=1`, `?diag=1` (with `?report=<port>` it posts black frame reports to a local receiver on that port), `?showcase=1` (a self-playing demo, with `?hud=0`, `?loop=1` and `?bars=0`, see [docs/SHOWCASE.md](docs/SHOWCASE.md)), `?nopost=1`, `?nooverlay=1`, `?touch=1` (force touch controls on a desktop, for testing), `?phonediag=1` (small overlay with fps, tier, float targets, audio and touch state), `?nofloat=1` (force the fallback used when a device has no float render targets), `?overlay=1` (keep the full screen overlay look on a phone), `?q=0..5` (render quality), `?noadapt`. `window.__ctx` exposes the game context, and `__ctx.game.advance(seconds)` steps the simulation deterministically.
 
     node tools/shot.mjs <url> <out.png> [waitMs]      # screenshot plus console error check
     node tools/bossbot.mjs <port> <outDir> [0,1,2]    # aimbot through each boss to level complete
@@ -113,6 +121,8 @@ URL parameters: `?autostart=1`, `?level=0|1|2`, `?god=1`, `?difficulty=easy|norm
     node tools/looktest.mjs <port> [outDir]           # screenshots at fixed points in every level plus frame ms per quality tier
     node tools/blackframes.mjs <port> [seconds]       # reads back every frame, flags black frames and non-finite values (--switch sweeps tiers)
     node tools/captest.mjs <port> [seconds]           # simulated 30 fps display: checks the adaptive quality and the tier order
+    node tools/touchtest.mjs <port> [outDir]          # emulated iPhone, real multi-touch: stick, buttons, pause, release on blur
+    node tools/phoneshots.mjs <port> [outDir]         # iPhone 12 and 14 landscape screenshots of every screen, tap target and overlap audit
     node tools/whiteout.mjs <port> [seconds]          # luminance runs, catches screen wide white-outs in boss fights
     node tools/gifs.mjs <port> docs                   # render the README GIFs from the showcase route on the real GPU (needs ffmpeg)
     node tools/sfxanalyze.mjs file <wav>              # measures a sound: envelope, spectrum, pitch fall, loudness (also render and burst modes)
@@ -124,7 +134,7 @@ The tools launch Google Chrome from the macOS default path, or from the `CHROME_
 
 - Checked headless: no console errors, all three bosses beatable, full screen flow (title, pause, level complete, game over, restart).
 - Checked on an Apple silicon GPU (Metal): locks 60 Hz at 1080p and 4 to 7 ms of GPU time per frame at the top quality tier (`tools/looktest.mjs` gives the figures), and no rendering artefacts on any level or boss arena.
-- Designed for desktop with a keyboard first. A gamepad is supported. There are no touch controls: on touch screens the title shows TAP TO START and a desktop notice, but the flight itself needs a keyboard or gamepad.
+- Designed for desktop with a keyboard first. A gamepad is supported. Phones (landscape) are supported from v4: tested by hand on an iPhone in Safari and from the Home Screen (60 fps at the quality tier phones start on, measured with `?phonediag=1`), plus emulation and the iOS simulator in the test tools. Not tested yet: other iOS browsers (Brave, Chrome for iOS), Android (no device available), iPads and older iPhones. Phones start at quality tier 1 (of 0 to 5) and only step down. There is no offline mode yet.
 - Needs a browser with WebGL2.
 - Steering feel is tuned by hand with the `?tune=1` panel (the default is the `tight` preset). Not measured: feel across other input devices, and how the audio sounds on different hardware.
 - A browser that caps the frame rate to 30 fps (Chrome Energy Saver, macOS Low Power Mode, a 30 Hz display) makes the game run at 30 fps but it keeps full quality.

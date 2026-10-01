@@ -6,6 +6,7 @@ import { h } from './dom.js';
 import { Hud } from './hud.js';
 import { Screens } from './screens.js';
 import { Comm } from './comm.js';
+import { device } from '../core/device.js';
 
 const PHASE_SCREEN = { title: 'title', paused: 'pause', pause: 'pause', gameover: 'gameover', levelcomplete: 'levelcomplete', victory: 'victory' };
 const HUD_HIDDEN = new Set(['title', 'victory']);
@@ -28,6 +29,9 @@ export const ui = {
     this.ctx = ctx;
     root = root || document.getElementById('ui-root');
     this.root = root;
+    // phones default to the cheap look (what ?nooverlay=1 does on a desktop, see the lite rules in style.css); tablets keep the full
+    // look. ?overlay=1 brings the full look back on a phone for comparison.
+    try { document.body.classList.toggle('lite', device.phone && new URLSearchParams(location.search).get('overlay') !== '1'); } catch (e) { /* no body yet */ }
     const wrap = (this.wrap = h('div', 'ui', null, root));
     this.hud = new Hud(ctx, wrap);
     this.commBox = new Comm(ctx, wrap);
@@ -53,6 +57,7 @@ export const ui = {
       if (this.screens.current === 'pause' && normPhase(ctx.state.phase) !== 'paused') this.hideScreens();
     }, 250));
     window.addEventListener('resize', () => this.hud.measure());
+    window.addEventListener('orientationchange', () => setTimeout(() => this.hud.measure(), 150));
 
     this.syncPhase(true);
   },

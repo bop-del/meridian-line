@@ -8,7 +8,11 @@
 // deadzone, a response curve and light smoothing. All of these are live feel parameters (feel.p.handling.key*, stick*).
 // Barrel roll: Q and E. A double tap of left or right also rolls, but only a genuine tap pair: short first press, short
 // gap, and no left or right key activity just before it (doubleTap* parameters), so corrective steering never rolls.
+// Touch: src/ui/touch.js writes input.touch (see below). Its floating stick is shaped like a gamepad stick (stickDeadzone, stickExpo,
+// stickSmooth), its buttons OR into the held flags and its pulses (bomb, roll, pause) are consumed once per frame. Phones only:
+// every field stays idle unless touch.js is running, which it only does when device.touch is true.
 import { feel } from './feel.js';
+import { device } from './device.js';
 
 const KEY_ACTIONS = {
   fire: ['Space', 'KeyZ'],
@@ -111,6 +115,9 @@ export const input = {
   mouseAim: false,
   capture: false,          // game.js sets true while playing: blocks page scroll and browser defaults for game keys
   usingGamepad: false,
+  // Written by src/ui/touch.js each frame while the controls are live. x, y: raw stick deflection (-1..1, +y up), fire, boost,
+  // brake: held. bomb, rollLeft, rollRight, pause: pulses set on touch down and cleared here once consumed.
+  touch: { active: false, x: 0, y: 0, fire: false, boost: false, brake: false, bomb: false, rollLeft: false, rollRight: false, pause: false },
   invertY: false,
   autopilot: null,          // showcase mode and tests: see the end of update()
   fire: false, bomb: false, boost: false, brake: false,
@@ -166,6 +173,8 @@ export const input = {
     if (hadSteer) this.stamp = performance.now();
     tap.left.quiet = tap.right.quiet = false;
     this.fire = this.boost = this.brake = false;
+    const tc = this.touch;
+    tc.active = false; tc.x = tc.y = 0; tc.fire = tc.boost = tc.brake = false; tc.bomb = tc.rollLeft = tc.rollRight = tc.pause = false;
   },
 
   reset() {
@@ -176,6 +185,8 @@ export const input = {
     pendingJust.clear(); pendingUp.clear(); frameJust.clear(); frameUp.clear();
     pendingRoll.left = pendingRoll.right = false;
     tap.left.quiet = tap.right.quiet = false;
+    const tc = this.touch;
+    tc.bomb = tc.rollLeft = tc.rollRight = tc.pause = false;
   },
 
   // Edge queries operate on the snapshot taken at the start of the frame.
@@ -183,7 +194,10 @@ export const input = {
   justPressed(name) { return frameJust.has(name) || (!!actionState[name] && !actionPrev[name]); },
   justReleased(name) { return frameUp.has(name) || (!actionState[name] && !!actionPrev[name]); },
   // Drop any queued edges (used when a UI overlay consumed a key).
-  clearEdges() { pendingJust.clear(); frameJust.clear(); pendingRoll.left = pendingRoll.right = false; this.pause = this.confirm = this.bomb = false; },
+  clearEdges() {
+    pendingJust.clear(); frameJust.clear(); pendingRoll.left = pendingRoll.right = false; this.pause = this.confirm = this.bomb = false;
+    const tc = this.touch; tc.bomb = tc.rollLeft = tc.rollRight = false;
+  },
 
   update(dt) {
     const h = hp();
@@ -245,6 +259,25 @@ export const input = {
     } else if (padPrev.length) {
       padPrev.length = 0;
     }
+
+    // touch (phones): the gamepad stick treatment for the floating stick, buttons OR into the held flags, pulses are consumed here
+    const tc = this.touch;
+    if (device.touch) {
+      if (tc.active) {
+        const dz = h.stickDeadzone ?? 0.16, ex = h.stickExpo ?? 1.35;
+        const tx = shapeStick(tc.x, dz, ex), ty = shapeStick(tc.y, dz, ex);
+        if (Math.abs(tx) > Math.abs(px)) px = tx;
+        if (Math.abs(ty) > Math.abs(py)) py = ty;
+        fireHeld = fireHeld || tc.fire;
+        boostHeld = boostHeld || tc.boost;
+        brakeHeld = brakeHeld || tc.brake;
+      }
+      if (tc.bomb) bombEdge = true;
+      if (tc.rollLeft) rollL = true;
+      if (tc.rollRight) rollR = true;
+      if (tc.pause) pauseEdge = true;
+    }
+    tc.bomb = tc.rollLeft = tc.rollRight = tc.pause = false;
 
     if (this.mouseAim && this.mouse.active) { aimX = this.mouse.x; aimY = this.mouse.y; }
     if (this.invertY) { ky = -ky; py = -py; }

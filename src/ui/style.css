@@ -236,6 +236,7 @@
 .panel-title + .panel-sub::before { content: ''; display: block; height: 1px; width: 62%; margin: 0.9em auto 0.9em; background: linear-gradient(90deg, transparent, var(--teal) 30%, var(--teal) 70%, transparent); opacity: 0.8; }
 .panel-sub { margin-top: 0.6em; font-size: 0.9em; letter-spacing: 0.42em; color: var(--teal); }
 .menu { display: flex; flex-direction: column; gap: 0.5em; margin-top: 1.6em; align-items: stretch; }
+.mgroup { display: contents; }   /* pause menu groups: invisible to layout unless a touch rule below turns them into columns */
 .btn { position: relative; display: block; padding: 0.55em 1.6em; font-size: 1.25em; font-weight: 500; text-align: center; background: rgba(70,230,210,0.05); border: 1px solid rgba(70,230,210,0.28); transition: background 0.12s, color 0.12s, border-color 0.12s, box-shadow 0.12s, transform 0.12s; cursor: pointer; }
 .btn-t { display: inline-block; }
 .btn.sel { background: linear-gradient(90deg, rgba(70,230,210,0.32), rgba(70,230,210,0.1)); color: #fff; border-color: var(--teal); box-shadow: 0 0 1em rgba(70,230,210,0.4); transform: translateX(0.3em); }
@@ -346,6 +347,7 @@
 /* one-time sound gate over the title */
 .sound-gate { position: absolute; inset: 0; z-index: 3; display: none; align-items: center; justify-content: center; cursor: pointer; background: radial-gradient(ellipse at 50% 55%, rgba(2,8,16,0.5), rgba(2,6,12,0.86)); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
 .screen.title.gated .sound-gate { display: flex; }
+.screen.title.gate-absorb .sound-gate { display: flex; opacity: 0; }
 .screen.title.gated .press, .screen.title.gated .title-opts, .screen.title.gated .legend, .screen.title.gated .title-speaker { visibility: hidden; }
 .gate-box { display: flex; flex-direction: column; align-items: center; gap: 0.9em; margin-top: 18vh; text-align: center; }
 .gate-icon { font-size: 2.6em; color: var(--teal); filter: drop-shadow(0 0 0.5em rgba(70,230,210,0.6)); }
@@ -428,7 +430,7 @@
   .ui *, .ui *::before, .ui *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
 
-/* touch screens: the key legend is for keyboards, so it gives way to the tap prompt and the desktop notice */
+/* touch screens: the key legend is for keyboards, so it gives way to the tap prompt and the HOW TO FLY button */
 @media (pointer: coarse) {
   .legend { display: none; }
   .diff-hint { display: none; }
@@ -445,4 +447,324 @@
   .comm, .comm-strip { width: min(94vw, 27em); right: 3vw; bottom: 1em; }
   .intro-name { font-size: 2em; }
   .panel { max-width: 92vw; }
+}
+
+/* ==== TOUCH (phones and tablets)
+   device.js puts `touch` on <body> for any touch device and `phone` when the short side is 500 px or less; ui.js adds `lite` on phones.
+   Nothing below applies to a desktop. Layout rules follow the screen zones every touch module agrees on (CSS px fractions, landscape):
+   STICK ZONE left 42 percent of the width from 25 percent of the height down, BUTTON CLUSTER right 30 percent from 35 percent down,
+   pause button top centre. So the HUD lives in the top band (shield, boost, score, kills, bombs, level, transponder), the comm panel
+   sits top centre under the score, and the bottom edge carries only the centre hint. All insets use env(safe-area-inset-*). */
+body.touch .ui {
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+body.phone .ui { --u: max(8.6px, min(0.78vw, 1.4vh)); }   /* 13.8 px text on an 844 x 390 screen (desktop floor is 7.2 px) */
+
+/* ---- HUD: text floors, then the top band */
+body.touch .hud .lbl { font-size: max(10px, 0.6em); }
+body.touch .hud .g-num { font-size: max(11px, 0.78em); }
+body.touch .hud .g-lbl { font-size: max(10px, 0.64em); margin-right: 0; }
+body.touch .h-tc, body.touch .h-tr, body.touch .h-tl, body.touch .h-l { filter: none; text-shadow: 0 0 2px rgba(2,10,22,0.95), 0 1px 3px rgba(2,10,22,0.85), 0 0 0.6em rgba(2,10,22,0.5); }
+
+body.touch .h-tl { top: calc(var(--sat) + 0.45em); left: calc(var(--sal) + 1em); }
+body.touch .h-lives { font-size: 1.1em; gap: 0.4em; }
+body.touch .h-lives .lbl { font-size: max(10px, 0.5em); margin-right: 0.3em; }
+
+/* shield and boost become two horizontal bars under the lives row, inside the top 25 percent of the height */
+body.touch .h-l { left: 0; top: 0; right: 0; bottom: 0; }
+body.touch .h-gauges { position: absolute; left: calc(var(--sal) + 1em); top: calc(var(--sat) + 2.85em); flex-direction: column; gap: 0.5em; align-items: stretch; }
+body.touch .h-gauge { flex-direction: row; align-items: center; gap: 0.7em; }
+body.touch .h-gauge .g-lbl { order: 0; width: 4.3em; text-align: left; }
+body.touch .h-gauge .h-hp, body.touch .h-gauge .h-boost { order: 1; }
+body.touch .h-gauge .g-num { order: 2; min-width: 2.2em; text-align: left; min-height: 0; }
+body.touch .h-hp { flex-direction: row; width: 9.5em; height: 1.15em; gap: 0.12em; padding: 0.16em; }
+body.touch .h-hp i.on, body.touch .h-hp[data-lvl="1"] i.on, body.touch .h-hp[data-lvl="2"] i.on { background-image: none; background-color: var(--green); }
+body.touch .h-hp[data-lvl="1"] i.on { background-color: var(--amber); }
+body.touch .h-hp[data-lvl="2"] i.on { background-color: var(--red); }
+body.touch .h-hp.flick i.on { background-color: #fff; }
+body.touch .h-boost { width: 9.5em; height: 0.55em; }
+body.touch .h-boost i { transform-origin: 0 50%; background: linear-gradient(90deg, #ffcf7a, var(--amber)); }
+body.touch .h-boost.burn i { background: linear-gradient(90deg, #fff2c8, #ffc74d); }
+body.touch .h-boost.cool i { background: linear-gradient(90deg, #7a3a2a, #b8582f); }
+
+/* top centre: SCORE | pause button slot | KILLS. The pause button (touch.css) is 44 px wide at the centre. */
+body.touch .h-tc { top: calc(var(--sat) + 0.2em); left: 0; right: 0; transform: none; display: grid; grid-template-columns: 1fr 56px 1fr; column-gap: 0; align-items: center; }
+body.touch .h-tc > .lbl { grid-column: 1; grid-row: 1; justify-self: end; align-self: end; }
+body.touch .h-score { grid-column: 1; grid-row: 2; justify-self: end; font-size: 2.05em; line-height: 1.02; }
+body.touch .h-tc-row { grid-column: 3; grid-row: 1 / 3; margin: 0; min-height: 0; flex-direction: column; align-items: flex-start; justify-content: center; }
+body.touch .h-hit b { font-size: 1.3em; }
+body.touch .h-chain { position: static; margin-top: 0.15em; font-size: 0.95em; }
+body.touch .h-boss { grid-column: 1 / -1; grid-row: 3; width: min(30vw, 26em); margin: 0.35em auto 0; }
+body.touch .h-boss-name { font-size: 0.8em; margin-bottom: 0.25em; }
+body.touch .h-boss-bar { height: 0.7em; }
+
+/* top right: level name, then bombs and pulse, then the transponder panel */
+body.touch .h-tr { top: calc(var(--sat) + 0.5em); right: calc(var(--sar) + 1em); width: 15em; }
+body.touch .h-level { font-size: 0.76em; }
+body.touch .h-sub { position: absolute; right: calc(var(--sar) + 1em); top: calc(var(--sat) + 2.3em); margin: 0; gap: 0.35em; align-items: flex-end; }
+body.touch .h-subrow { justify-content: flex-end; min-height: 1.2em; }
+body.touch .h-subrow .lbl { width: auto; }
+body.touch .bomb { width: 1.05em; height: 1.05em; }
+body.touch .h-laser i { width: 1.4em; height: 0.4em; }
+body.touch .h-escort { margin-top: 4.2em; }
+body.touch .esc-head { font-size: 0.8em; }
+
+/* centre layers: keep clear of the zones, scale for a phone */
+body.touch .intro-card { top: 50%; }
+body.touch .h-banner { top: 26%; }
+body.touch .h-banner .main { font-size: 2.2em; }
+body.touch .h-banner .sub { font-size: 0.95em; }
+body.touch .h-warning { top: 24%; width: min(56vw, 44em); }
+body.touch .h-warning .main { font-size: 2.2em; }
+body.touch .h-warning .sub { font-size: 0.95em; }
+body.touch .h-toasts { bottom: calc(var(--sab) + 10%); }
+body.touch .toast { font-size: 1.1em; }
+body.touch .h-pop { font-size: 1.05em; }
+body.touch .h-hint { left: 42%; width: 28%; max-width: none; bottom: calc(var(--sab) + 0.7em); transform: translate(0, 0.6em); padding: 0.45em 0.9em 0.5em; gap: 0.6em; flex-wrap: wrap; }
+body.touch .h-hint.on { transform: translate(0, 0); }
+body.touch .h-hint .hl { font-size: max(10px, 0.72em); }
+body.touch .h-hint .hb { font-size: 0.95em; line-height: 1.25; }
+
+/* comm panel: top centre under the score (under the boss bar while a boss bar is up), inside the gap between the two zones */
+body.touch .comm, body.touch .comm-strip { left: 42%; right: 30%; margin: 0; bottom: auto; top: calc(var(--sat) + 3.85em); width: auto; transform: translateY(-0.6em); }
+body.touch .comm.on, body.touch .comm-strip.on { transform: translateY(0); }
+body.touch .hud.boss-on ~ .comm, body.touch .hud.boss-on ~ .comm-strip { top: calc(var(--sat) + 6.6em); }
+body.touch .comm { gap: 0.6em; padding: 0.4em; }
+body.touch .comm-portrait { width: 4.6em; height: 4.6em; }
+body.touch .comm-name { font-size: max(10px, 0.72em); margin-bottom: 0.15em; }
+body.touch .comm-text { font-size: max(12px, 0.92em); line-height: 1.25; min-height: 3.4em; }
+body.touch .strip-tag { font-size: max(10px, 0.72em); }
+body.touch .strip-body { font-size: max(12px, 0.9em); }
+
+/* ---- screens: safe area, 44 px targets, compact panels */
+body.touch .screen { padding: var(--sat) var(--sar) var(--sab) var(--sal); }
+body.touch .btn, body.touch .pill, body.touch .arrow, body.touch .press, body.touch .speaker, body.touch .helpbtn {
+  min-height: 44px; min-width: 44px; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+body.touch .btn { display: flex; align-items: center; justify-content: center; padding-top: 0.3em; padding-bottom: 0.3em; }
+body.touch .btn.sel { transform: none; }
+body.touch .btn.sel::before { display: none; }
+body.touch .btn.slider, body.touch .btn.option { padding: 0 1em; display: grid; }
+body.touch .pill, body.touch .arrow { display: inline-flex; align-items: center; justify-content: center; }
+body.touch .pill { padding: 0 1em; }
+body.touch .arrow { font-size: 1.5em; padding: 0; }
+body.touch .press { display: flex; align-items: center; justify-content: center; padding: 0 1.2em; }
+body.touch .speaker { width: 44px; height: 44px; font-size: 1em; }
+body.touch .title-speaker { right: calc(var(--sar) + 1em); top: calc(var(--sat) + 0.8em); }
+body.touch .pause-speaker { display: none; }   /* the SOUND row in the audio block does the same job */
+body.touch .title-tools { display: contents; }
+body.touch .helpbtn { position: absolute; left: calc(var(--sal) + 1em); bottom: calc(var(--sab) + 2px); padding: 0 1.1em; font-size: 0.95em; letter-spacing: 0.3em; color: var(--teal); background: rgba(2,10,18,0.62); border: 1px solid rgba(70,230,210,0.35); }
+.screen.title.gated .helpbtn { visibility: hidden; }
+body.touch .mission-sel .diff-hint { display: block; font-size: max(11px, 0.8em); }
+body.touch .diff-l { font-size: max(10px, 0.72em); }
+body.touch .diff-hint { font-size: max(11px, 0.8em); }
+body.touch .title-opts { gap: 1.2em; align-items: flex-end; padding: 0.3em 1em 0.4em; margin-top: 0.2em; }
+body.phone .logo-1 { font-size: 4.2em; }
+body.phone .press { margin-top: 0.5em; }
+body.phone .kicker { margin-bottom: 0.3em; }
+body.phone .diff .arrow { display: none; }   /* the pills and the music name are themselves the targets */
+body.touch .music-name { max-width: 10em; }
+body.touch .gate-sub { font-size: max(11px, 0.72em); }
+
+/* sliders: the whole row is the target, a fat thumb on a thin track */
+body.touch .btn.slider { grid-template-columns: 4.6em 1fr 2.4em; gap: 0.7em; }
+body.touch .sl-i { height: 44px; background: none; touch-action: none; }
+body.touch .sl-i::-webkit-slider-runnable-track { height: 4px; background: rgba(255,255,255,0.24); border-radius: 2px; }
+body.touch .sl-i::-webkit-slider-thumb { width: 28px; height: 36px; margin-top: -16px; border-radius: 4px; }
+body.touch .sl-i::-moz-range-track { height: 4px; background: rgba(255,255,255,0.24); }
+body.touch .sl-i::-moz-range-thumb { width: 28px; height: 36px; border-radius: 4px; }
+body.touch .btn.slider.sel .sl-i { background: none; }
+body.touch .btn.option .op-v::after { content: ' >'; color: var(--teal); }
+body.touch .sep { margin-top: 0; }
+
+/* pause: title and the four buttons on the left, the audio block on the right */
+body.touch .screen.pause .panel { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); column-gap: 2em; width: min(94vw, 62em); max-width: calc(100vw - var(--sal) - var(--sar) - 1em); padding: 1em 1.6em 1em; text-align: center; }
+body.touch .screen.pause .panel-title { grid-column: 1; font-size: 2.2em; }
+body.touch .screen.pause .panel-sub { grid-column: 1; margin-top: 0.3em; }
+body.touch .screen.pause .panel-title + .panel-sub::before { margin: 0.5em auto; }
+body.touch .screen.pause .menu { display: contents; }
+body.touch .screen.pause .mgroup { display: flex; flex-direction: column; gap: 0.4em; }
+body.touch .screen.pause .mg-main { grid-column: 1; grid-row: 3; margin-top: 0.6em; }
+body.touch .screen.pause .mg-audio { grid-column: 2; grid-row: 1 / span 3; justify-content: center; }
+body.touch .screen.pause .btn.resume { min-height: 54px; font-size: 1.45em; }
+body.touch .screen.pause .hint { display: none; }
+body.touch .screen.pause .panel::before, body.touch .screen.pause .panel::after { content: none; }
+body.touch .screen.pause .btn { padding-top: 0; padding-bottom: 0; }
+
+/* result screens: stats and buttons on the left, the rank on the right */
+body.touch .panel { padding: 1.2em 2em 1.1em; max-height: calc(100vh - var(--sat) - var(--sab)); }
+body.touch .panel-title, body.touch .panel-title.big { font-size: 2.4em; }
+body.touch .panel-sub { font-size: max(11px, 0.9em); }
+body.touch .panel-title + .panel-sub::before { margin: 0.5em auto; }
+body.touch .panel.wide { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 2.4em; min-width: 0; width: min(92vw, 50em); justify-items: stretch; }
+body.touch .panel.wide > .panel-title, body.touch .panel.wide > .panel-sub { grid-column: 1 / -1; }
+body.touch .panel.wide .lc-body { display: contents; }
+body.touch .panel.wide .stats { grid-column: 1; grid-row: 3; margin-top: 0.4em; min-width: 0; }
+body.touch .panel.wide .rank-box { grid-column: 2; grid-row: 3 / span 2; margin-top: 0.4em; min-width: 0; }
+body.touch .panel.wide .menu { grid-column: 1; grid-row: 4; margin-top: 0.7em; }
+body.touch .stats { margin-top: 0.6em; }
+body.touch .stat { padding: 0.15em 0.4em; }
+body.touch .stat .sv { font-size: 1.6em; }
+body.touch .stat .sk { font-size: max(11px, 0.8em); }
+body.touch .rank { width: 5.4em; height: 6.2em; }
+body.touch .rk-letter { font-size: 4.8em; }
+body.touch .rk-cap { margin-top: 0.5em; font-size: max(10px, 0.72em); }
+body.touch .rk-lines { margin-top: 0.4em; min-width: 14em; font-size: max(10px, 0.72em); gap: 0.15em; }
+body.touch .rk-l { gap: 1em; }
+body.touch .victory-wrap { flex-direction: column; padding: 0 4%; }
+body.touch .v-left { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 2.4em; max-width: 50em; width: 100%; text-align: center; }
+body.touch .v-left > .panel-title, body.touch .v-left > .panel-sub { grid-column: 1 / -1; }
+body.touch .v-left .panel-title { font-size: 2.2em; }
+body.touch .v-left .lc-body { display: contents; }
+body.touch .v-left .stats { grid-column: 1; grid-row: 3; min-width: 0; }
+body.touch .v-left .rank-box { grid-column: 2; grid-row: 3 / span 2; }
+body.touch .v-left .menu { grid-column: 1; grid-row: 4; max-width: none; margin-top: 0.7em; }
+
+/* one-time how-to-fly card */
+.touch-help { position: absolute; inset: 0; z-index: 30; display: none; align-items: flex-start; justify-content: center; opacity: 0; pointer-events: auto; cursor: pointer; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: var(--sat, 0px) var(--sar, 0px) var(--sab, 0px) var(--sal, 0px); background: radial-gradient(ellipse at center, rgba(3,10,18,0.9), rgba(2,5,12,0.97)); }
+.touch-help.on { display: flex; animation: fadein 0.3s forwards; }
+.th-box { width: min(94%, 56em); text-align: center; margin: auto; padding: 4px 0; }   /* auto margins centre it, and let it scroll from the top when it is taller than the screen */
+.th-title { font-size: 1.5em; font-weight: 300; letter-spacing: 0.4em; margin-right: -0.4em; color: var(--white); text-shadow: 0 0 0.4em rgba(70,230,210,0.5); }
+.th-cols { display: flex; gap: 2em; align-items: center; justify-content: center; margin-top: 0.8em; }
+.th-col { flex: 1; min-width: 0; }
+.th-left { flex: 0 0 15em; }
+.th-stick { position: relative; width: 5em; height: 5em; margin: 0 auto 0.6em; }
+.th-stick .ring { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid rgba(70,230,210,0.7); background: radial-gradient(circle, rgba(70,230,210,0.05), rgba(70,230,210,0.16)); }
+.th-stick .knob { position: absolute; left: 50%; top: 50%; width: 2.2em; height: 2.2em; margin: -1.1em 0 0 -1.1em; border-radius: 50%; border: 1.5px solid rgba(238,248,247,0.85); background: radial-gradient(circle at 50% 40%, rgba(180,255,245,0.42), rgba(70,230,210,0.3)); transform: translate(0.9em, -0.6em); animation: thdrag 2.6s ease-in-out infinite alternate; }
+@keyframes thdrag { from { transform: translate(-0.9em, 0.7em); } to { transform: translate(1em, -0.8em); } }
+.th-h { font-size: max(10px, 0.66em); letter-spacing: 0.5em; margin-right: -0.5em; color: var(--amber); }
+.th-big { font-size: 1.3em; font-weight: 500; color: var(--teal); margin: 0.2em 0 0.4em; }
+.th-t, .th-d { font-family: var(--body); text-transform: none; letter-spacing: 0.03em; font-size: max(12px, 0.92em); line-height: 1.3; color: #dff3f0; }
+.th-right { text-align: left; }
+.th-right .th-h { margin-bottom: 0.6em; text-align: left; }
+.th-row { display: grid; grid-template-columns: 2.4em 3.6em 1fr; gap: 0.6em; align-items: center; margin-bottom: 0.4em; }
+.th-ic { display: grid; place-items: center; width: 2.4em; height: 2.4em; border-radius: 50%; border: 1.5px solid var(--c, var(--teal)); background: rgba(4,18,26,0.5); font-style: normal; font-size: 0.8em; font-weight: 700; letter-spacing: 0.1em; }
+.th-ic.ic-fire { --c: rgba(70,230,210,0.95); background: rgba(14,143,136,0.35); }
+.th-ic.ic-bomb { --c: rgba(255,176,46,0.95); }
+.th-ic.ic-boost { --c: rgba(255,215,119,0.95); }
+.th-ic.ic-brake { --c: rgba(150,200,255,0.9); }
+.th-ic.ic-roll { --c: rgba(238,248,247,0.7); }
+.th-n { font-weight: 700; letter-spacing: 0.18em; font-size: max(11px, 0.85em); }
+.th-foot { margin-top: 0.8em; font-size: 1.1em; letter-spacing: 0.5em; margin-right: -0.5em; color: #fff; animation: blink 1.1s steps(2, jump-none) infinite; }
+.th-pause { margin-top: 0.5em; font-size: max(10px, 0.62em); letter-spacing: 0.3em; color: var(--mute); }
+
+/* ---- lite: phones get what ?nooverlay=1 gives a desktop, without the look going flat. No scanlines, no blend modes, no backdrop blur
+   (a plain translucent fill stands in for the title brightening and the gate blur), no drop-shadow filters on the HUD. The edge
+   vignette stays because it is a single static gradient. */
+body.lite .ui-scan { background: radial-gradient(ellipse at center, rgba(0,0,0,0) 66%, rgba(0,0,0,0.32) 100%); }
+body.lite .hud-flash, body.lite .comm-static, body.lite .title-glow, body.lite .panel-title.glitch::before, body.lite .panel-title.glitch::after { mix-blend-mode: normal; }
+body.lite .title-lift { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(255,244,228,0.16); }
+body.lite .sound-gate { backdrop-filter: none; -webkit-backdrop-filter: none; background: radial-gradient(ellipse at 50% 55%, rgba(2,8,16,0.6), rgba(2,6,12,0.9)); }
+body.lite .h-lock .spin svg, body.lite .h-lives .ship, body.lite .h-progress-ship { filter: none; }
+body.lite .h-lock .hx { stroke-width: 3; }
+body.lite .h-pop { text-shadow: 0 0 2px #000, 0 1px 3px #000; }
+body.lite .toast, body.lite .h-banner .main, body.lite .h-banner .sub, body.lite .intro-name, body.lite .intro-sub, body.lite .intro-stage { text-shadow: 0 0 2px rgba(2,10,22,0.95), 0 1px 4px rgba(2,10,22,0.85); }
+body.lite .comm-scan { display: none; }
+/* the Add to Home Screen strip is pinned to the bottom of the gate, the gate text moves up to make room */
+.sound-gate.has-hint { background: radial-gradient(ellipse at 50% 55%, rgba(2,8,16,0.74), rgba(2,6,12,0.94)); }
+.sound-gate.has-hint { padding-bottom: calc(max(8px, env(safe-area-inset-bottom)) + 124px); }   /* the steps strip is about 120 px tall: keep the gate text clear of it */
+.sound-gate.has-hint .gate-box { margin-top: 0; }
+/* short landscape screens (a phone in a Safari tab): sound prompt on the left, the steps panel on the right (see installHint.js) */
+@media (max-height: 360px) and (orientation: landscape) {
+  .sound-gate.has-hint { justify-content: flex-start; padding: 0 0 0 max(2vw, env(safe-area-inset-left)); }
+  /* the box takes what the steps panel leaves (panel: min(50vw, 400px) plus its right margin), and its text shrinks to fit that */
+  .sound-gate.has-hint .gate-box { margin-top: 0; flex: 1 1 0; min-width: 0; width: auto; gap: 0.6em; margin-right: calc(min(50vw, 400px) + max(14px, env(safe-area-inset-right)) + 12px); }
+  .sound-gate.has-hint .gate-main { font-size: 1.15em; letter-spacing: 0.26em; margin-right: -0.26em; }
+  .sound-gate.has-hint .gate-sub { font-size: max(10px, 0.62em); letter-spacing: 0.2em; margin-right: -0.2em; }
+  .sound-gate.has-hint .gate-icon { font-size: 2em; }
+}
+
+/* ==== touch, all heights: score and gauges share the top band, so the score shrinks for seven characters and the gauges for narrow screens */
+body.touch .h-score.long { font-size: 1.55em; }
+@media (max-width: 800px) {
+  body.touch .h-gauge .g-num { display: none; }
+  body.touch .h-hp, body.touch .h-boost { width: 7em; }
+  body.touch .h-gauge .g-lbl { width: 3.9em; }
+  body.touch .h-score { font-size: 1.8em; }
+  body.touch .h-score.long { font-size: 1.45em; }
+}
+/* the level title card owns the middle of the screen while the first comm line waits (hud.commBlocked) */
+
+/* ==== SHORT LANDSCAPE: a phone in a browser tab with its bars up is only 260 to 340 px tall. The title turns into two columns, the
+   pause menu loses its heading and its AUDIO label, the HUD drops the level name, and the button cluster (touch.css) gets a compact
+   layout. Screens that still cannot fit scroll instead of clipping. */
+@media (max-height: 360px) and (orientation: landscape) {
+  body.touch .screen.title { align-items: stretch; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+  body.touch .screen.title .title-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-auto-rows: min-content; column-gap: 1.6em; align-content: start; justify-items: center; padding: 10px 3% 8px; width: 100%; }
+  body.touch .screen.title .kicker { display: none; }
+  body.touch .screen.title .logo { grid-column: 1; margin-top: 4px; }
+  body.touch .screen.title .logo-1 { font-size: 2.6em; letter-spacing: 0.2em; margin-right: -0.2em; }
+  body.touch .screen.title .logo-2 { font-size: 1.3em; letter-spacing: 0.8em; margin-right: -0.8em; }
+  body.touch .screen.title .logo-rule { margin-top: 0.3em; }
+  body.touch .screen.title .press { grid-column: 1; margin: 0.5em -0.4em 0 0; font-size: 1.05em; letter-spacing: 0.4em; white-space: nowrap; }
+  body.touch .screen.title .title-opts { grid-column: 2; grid-row: 1 / span 3; flex-direction: column; align-items: stretch; gap: 6px; margin: 0; padding: 8px 10px; }
+  body.touch .screen.title .diff { display: grid; grid-template-columns: 6.4em auto; align-items: center; column-gap: 0.4em; margin: 0; text-align: left; }
+  body.touch .screen.title .diff-l { margin: 0; letter-spacing: 0.3em; font-size: max(10px, 0.7em); }
+  body.touch .screen.title .diff-row { justify-content: flex-start; }
+  body.touch .screen.title .mission-sel .diff-hint { grid-column: 2; margin: 0; min-height: 0; line-height: 1.1; }
+  body.touch .screen.title .music-name { max-width: 9em; line-height: 1.1; }
+  body.touch .title-tools { position: absolute; left: calc(var(--sal) + 1em); bottom: calc(var(--sab) + 6px); display: flex; gap: 8px; align-items: center; z-index: 2; }
+  body.touch .title-tools .helpbtn, body.touch .title-tools .title-speaker { position: static; }
+  body.touch .title-tools .title-speaker { font-size: 1em; }
+  body.touch .screen.title.gated .title-tools { visibility: hidden; }
+
+  /* pause: no heading text, buttons left, audio right, nothing but the 44 px rows */
+  body.touch .screen.pause .panel { padding: 8px 1.2em; row-gap: 0; grid-template-rows: auto auto 1fr; align-content: start; }
+  body.touch .screen.pause .btn.slider { min-height: 44px; }
+  body.touch .screen.pause .sl-i { display: block; margin: 0; }
+  body.touch .screen.pause .panel-title { font-size: 1.5em; margin-bottom: 0.3em; }
+  body.touch .screen.pause .panel-sub { display: none; }
+  body.touch .screen.pause .mg-main { margin-top: 0; gap: 4px; }
+  body.touch .screen.pause .mg-audio { gap: 2px; }
+  body.touch .screen.pause .sep { display: none; }
+  body.touch .screen.pause .btn.resume { min-height: 48px; font-size: 1.2em; }
+
+  /* result screens */
+  body.touch .panel { padding: 8px 1.6em; }
+  body.touch .panel-title, body.touch .panel-title.big { font-size: 1.8em; }
+  body.touch .panel-sub { margin-top: 0.2em; }
+  body.touch .panel-title + .panel-sub::before { margin: 0.3em auto; }
+  body.touch .stats { margin-top: 0.3em; }
+  body.touch .rank { width: 4.4em; height: 5em; }
+  body.touch .rk-letter { font-size: 3.8em; }
+  body.touch .rk-cap { margin-top: 0.3em; }
+  body.touch .rk-lines { margin-top: 0.2em; gap: 0.1em; }
+  body.touch .panel.wide .menu, body.touch .v-left .menu { margin-top: 0.4em; gap: 4px; }
+
+  /* how to fly card */
+  body.touch .th-title { font-size: 1.15em; }
+  body.touch .th-cols { margin-top: 0.4em; gap: 1.6em; }
+  body.touch .th-stick { width: 3.6em; height: 3.6em; margin-bottom: 0.4em; }
+  body.touch .th-stick .knob { width: 1.6em; height: 1.6em; margin: -0.8em 0 0 -0.8em; }
+  body.touch .th-row { margin-bottom: 0.2em; }
+  body.touch .th-ic { width: 2.1em; height: 2.1em; }
+  body.touch .th-foot { margin-top: 0.5em; font-size: 1em; }
+  body.touch .th-pause { display: none; }
+
+  /* HUD: the level name goes (the title card showed it), bombs and pulse take the corner, the transponder panel sits under them */
+  body.touch .h-level { display: none; }
+  body.touch .h-sub { top: calc(var(--sat) + 0.45em); }
+  body.touch .h-tr { top: calc(var(--sat) + 3.2em); width: calc(30% - var(--sar) - 1em - 4px); }
+  body.touch .h-escort { margin-top: 0; padding: 0.4em 0.6em 0.5em; }
+  body.touch .h-escort > .lbl { display: none; }
+  body.touch .h-esc { margin-top: 0; }
+  body.touch .esc-head { flex-wrap: wrap; font-size: 0.95em; row-gap: 0.1em; }
+  body.touch .esc-why { flex-basis: 100%; order: 3; font-size: 0.78em; }
+  body.touch .comm, body.touch .comm-strip { top: calc(var(--sat) + 3.4em); right: 33%; }
+  body.touch .h-gauges { top: calc(var(--sat) + 2.15em); gap: 0.25em; }
+  body.touch .h-hp { height: 1em; }
+  body.touch .h-boss { width: min(24vw, 20em); margin-top: 0.15em; }
+  body.touch .h-boss-name { font-size: max(10px, 0.72em); margin-bottom: 0.1em; }
+  body.touch .h-boss-bar { height: 0.55em; }
+  body.touch .hud.boss-on ~ .comm, body.touch .hud.boss-on ~ .comm-strip { top: calc(var(--sat) + 5.6em); }
+  body.touch .comm-portrait { display: none; }   /* the name keeps the speaker's colour; the text gets the width */
+  body.touch .comm-text { min-height: 2.4em; }
+  body.touch .h-toasts { bottom: calc(var(--sab) + 6.4em); }
+  body.touch .h-hint { bottom: calc(var(--sab) + 0.4em); }
 }

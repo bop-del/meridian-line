@@ -1,7 +1,7 @@
 {
   "name": "meridian-line",
-  "version": "3.2.0",
-  "description": "MERIDIAN LINE: an on-rails 3D space shooter for the browser. three.js, fully procedural, no assets.",
+  "version": "4.0.0",
+  "description": "MERIDIAN LINE: an on-rails 3D space shooter for the browser. three.js, fully procedural, no model, texture or audio files.",
   "keywords": [
     "threejs",
     "webgl",

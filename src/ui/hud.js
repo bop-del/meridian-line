@@ -4,6 +4,7 @@
 // comm and readout strips bottom-right (see comm.js); hint line bottom-centre.
 import { h, setText, setClass, fmt, safeAnimate } from './dom.js';
 import { hitDirection } from '../fx/impact.js';
+import { device } from '../core/device.js';
 
 const SEGMENTS = 20;
 const MAX_LOCKS = 6;
@@ -22,6 +23,15 @@ const HEX_PTS = (r) => Array.from({ length: 6 }, (_, i) => { const a = (Math.PI 
 const HEX_SVG = '<svg viewBox="-50 -50 100 100" aria-hidden="true">'
   + '<polygon class="hx-in" points="' + HEX_PTS(35) + '"/>'
   + '<polygon class="hx" points="' + HEX_PTS(47) + '"/></svg>';
+
+// control tips are written for a keyboard; on touch they are reworded to name the on-screen buttons
+const TOUCH_HINTS = [
+  [/hold SPACE, release/gi, 'hold FIRE, release'],
+  [/BOOST: SHIFT BRAKE: C/i, 'SPEED: hold BOOST to go faster, BRAKE to slow down'],
+  [/Q or E (deflects|sends)/gi, (m, v) => 'tap a ROLL button to ' + v.slice(0, -1)],
+  [/BOMB: X clears/i, 'BOMB: tap BOMB to clear'],
+];
+const touchText = (t) => TOUCH_HINTS.reduce((a, [re, to]) => a.replace(re, to), t);
 
 // what jams the escort's transponder link, shown next to its name
 const TROUBLE_TEXT = { gate: 'BLOCKED BY GATE', engine: 'DRIVE FAULT', barrier: 'CUT BY BARRIER', tail: 'JAMMED BY CONTACT' };
@@ -42,6 +52,7 @@ export class Hud {
     this.hintT = 0; this.hintText = ''; this.hintAt = -9;
     this.escortRows = new Map();
     this.escortShown = 0;
+    this.touch = device.touch;   // touch layout: shield and boost run along the top, see the TOUCH block in style.css
     this.build(parent);
     this.measure();
     this.bind();
@@ -186,6 +197,7 @@ export class Hud {
     this.chain = 0; this.chainT = 0;
     this.hitFlicker = 0; this.alarmT = 0;
     this.bossEl.classList.remove('on');
+    setClass(this.el, 'boss-on', false);
     this.bannerEl.classList.remove('on');
     this.warnEl.classList.remove('on');
     this.hintEl.classList.remove('on'); this.hintT = 0;
@@ -291,7 +303,8 @@ export class Hud {
     return (this.annCur ? 1 : 0) + (this.escortShown > 0 ? 1 : 0);
   }
 
-  commBlocked() { return this.layersUp() >= 2; }
+  // on touch the level title card owns the top of the screen for its 3.6 seconds, so the first comm line waits for it
+  commBlocked() { return this.layersUp() >= 2 || (this.touch && this.ctx.ui?.introT > 0); }
 
   crowded() { return this.layersUp() + (this.ctx.ui?.commBox?.visible ? 1 : 0) >= 2; }
 
@@ -307,6 +320,7 @@ export class Hud {
   // colon and what precedes it is a single short word; anything else is shown whole.
   hint(text, duration = 4, label = null) {
     text = String(text || '').replace(/\s+/g, ' ').trim();
+    if (this.touch) text = touchText(text);
     if (!text) return;
     if (text === this.hintText && this.clock - this.hintAt < 1) return;
     this.hintText = text; this.hintAt = this.clock;
@@ -490,7 +504,9 @@ export class Hud {
       this.dispScore = Math.abs(d) < 2 ? target : this.dispScore + d * Math.min(1, dt * 9);
       if (d > 0 && this.dispScore === target) safeAnimate(this.scoreEl, [{ transform: 'scale(1.18)' }, { transform: 'scale(1)' }], { duration: 200 });
     }
-    setText(this.scoreEl, fmt(this.dispScore).padStart(1, '0'));
+    const scoreTxt = fmt(this.dispScore).padStart(1, '0');
+    setText(this.scoreEl, scoreTxt);
+    if (this.touch) setClass(this.scoreEl, 'long', scoreTxt.length >= 7);   // 100,000 and up shrink so the score keeps clear of the gauges
     if (this._hits !== s.hits) {
       if (this._hits !== undefined && s.hits > this._hits) safeAnimate(this.hitEl, [{ transform: 'scale(1.5)', color: '#fff' }, { transform: 'scale(1)' }], { duration: 220 });
       this._hits = s.hits;
@@ -553,7 +569,7 @@ export class Hud {
 
   updateBoost(s, pl) {
     const b = Math.max(0, Math.min(1, s.boost ?? 1));
-    if (this._boost !== b) { this._boost = b; this.boostFill.style.transform = `scaleY(${b.toFixed(3)})`; }
+    if (this._boost !== b) { this._boost = b; this.boostFill.style.transform = this.touch ? `scaleX(${b.toFixed(3)})` : `scaleY(${b.toFixed(3)})`; }
     const cool = (s.boostCooldown || 0) > 0;
     setClass(this.boostBar, 'cool', cool);
     setClass(this.boostBar, 'burn', !!pl?.isBoosting && !cool);
@@ -578,6 +594,7 @@ export class Hud {
     const b = s.boss;
     const on = !!b && (b.hp ?? 0) > 0;
     setClass(this.bossEl, 'on', on);
+    setClass(this.el, 'boss-on', on);   // the touch comm panel sits under the boss bar
     if (!on) return;
     setText(this.bossName, String(b.name || 'BOSS').toUpperCase());
     const f = Math.max(0, Math.min(1, (b.hp ?? 0) / (b.maxHp || 1)));

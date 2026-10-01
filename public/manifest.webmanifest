@@ -1,0 +1,16 @@
+{
+  "name": "MERIDIAN LINE",
+  "short_name": "MERIDIAN",
+  "description": "An on-rails 3D space shooter for the browser. Fully procedural, no downloads.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#02060c",
+  "theme_color": "#070b14",
+  "icons": [
+    { "src": "./apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

@@ -2,13 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#070b14" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="MERIDIAN LINE" />
+  <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
   <title>MERIDIAN LINE</title>
   <meta name="description" content="MERIDIAN LINE is an on-rails 3D space shooter for the browser. Fly the Vanta Mk II with Ninth Flight through three worlds of the Meridian Reach. Fully procedural, no downloads." />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="MERIDIAN LINE" />
-  <meta property="og:description" content="An on-rails 3D space shooter for the browser. Three worlds, three bosses, lock-on volleys, barrel rolls and a synthesised soundtrack. No assets, no downloads." />
+  <meta property="og:description" content="An on-rails 3D space shooter for the browser. Three worlds, three bosses, lock-on volleys, barrel rolls and a synthesised soundtrack. Everything is drawn and synthesised in code." />
   <meta property="og:url" content="https://bop-del.github.io/meridian-line/" />
   <meta property="og:site_name" content="MERIDIAN LINE" />
   <meta property="og:image" content="https://bop-del.github.io/meridian-line/og.jpg" />
@@ -19,8 +24,23 @@
   <meta name="twitter:image" content="https://bop-del.github.io/meridian-line/og.jpg" />
   <meta name="twitter:description" content="An on-rails 3D space shooter for the browser. Fully procedural, no downloads." />
   <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <style>
+    /* start-up screen: plain HTML and CSS so it paints before any script arrives, removed by src/main.js after the first frame */
+    #boot { position: fixed; inset: 0; z-index: 2147483200; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: #02060c; color: #46e6d2; font-family: 'Avenir Next', 'Futura', 'Century Gothic', 'Helvetica Neue', 'Segoe UI', Arial, sans-serif; transition: opacity 0.45s ease; }
+    #boot.out { opacity: 0; pointer-events: none; }
+    #boot .b-name { font-size: clamp(20px, 5.2vw, 38px); font-weight: 300; letter-spacing: 0.42em; margin-right: -0.42em; text-transform: uppercase; }
+    #boot .b-bar { position: relative; width: min(46vw, 260px); height: 2px; overflow: hidden; background: rgba(70, 230, 210, 0.16); }
+    #boot .b-bar::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 34%; background: #46e6d2; box-shadow: 0 0 10px rgba(70, 230, 210, 0.8); animation: boot-sweep 1.3s ease-in-out infinite; }
+    #boot .b-cap { font-size: clamp(10px, 2.4vw, 12px); letter-spacing: 0.5em; margin-right: -0.5em; opacity: 0.62; }
+    @keyframes boot-sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+    @media (prefers-reduced-motion: reduce) { #boot .b-bar::after { animation: none; left: 33%; } }
+  </style>
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; touch-action: manipulation; overscroll-behavior: none; }
+    body { overscroll-behavior: none; touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
     #app, #ui-root { position: fixed; inset: 0; }
     #ui-root { pointer-events: none; }
     #ui-root > * { pointer-events: auto; }
@@ -28,8 +48,19 @@
   </style>
 </head>
 <body>
+  <div id="boot" role="status" aria-label="Loading"><div class="b-name">Meridian Line</div><div class="b-bar"></div><div class="b-cap">LOADING</div></div>
   <div id="app"></div>
   <div id="ui-root"></div>
+  <script>
+    // if the game script never ran (a browser too old to parse it, a failed download), say so instead of loading forever
+    setTimeout(function () {
+      var b = document.getElementById('boot');
+      if (!b || window.__ctx) return;
+      var c = b.querySelector('.b-cap'), bar = b.querySelector('.b-bar');
+      if (c) c.textContent = 'COULD NOT START. RELOAD OR USE A CURRENT BROWSER (IPHONE: IOS 15.4 OR LATER)';
+      if (bar) bar.style.display = 'none';
+    }, 20000);
+  </script>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

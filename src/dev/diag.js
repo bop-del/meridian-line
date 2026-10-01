@@ -23,6 +23,7 @@ export const diag = {
     r.render = function (dt) {
       orig(dt);
       const now = performance.now(), gap = now - prev; prev = now;
+      if (r.lost || gl.isContextLost()) return;   // nothing to read while the context is gone (renderer.js rebuilds it on restore)
       const W = gl.canvas.width, H = gl.canvas.height; let s = 0, cnt = 0;
       for (let iy = 1; iy < 8; iy++) for (let ix = 1; ix < 8; ix++) {
         gl.readPixels((W * ix / 8) | 0, (H * iy / 8) | 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
@@ -47,8 +48,8 @@ export const diag = {
     };
     setInterval(() => this.send({ type: 'summary', n: this.n, black: this.black, worstMs: this.worstMs, q: r.quality, dpr: devicePixelRatio, size: [innerWidth, innerHeight],
       pr: ctx.renderer.getPixelRatio(), phase: ctx.state.phase, focus: document.hasFocus(), ua: navigator.userAgent.slice(0, 80), url: location.search }), 5000);
-    gl.canvas.addEventListener('webglcontextlost', () => console.warn('[diag] WEBGL CONTEXT LOST'));
-    gl.canvas.addEventListener('webglcontextrestored', () => console.warn('[diag] webgl context restored'));
+    gl.canvas.addEventListener('webglcontextlost', () => { self.ctxLost = (self.ctxLost || 0) + 1; console.warn('[diag] WEBGL CONTEXT LOST'); });
+    gl.canvas.addEventListener('webglcontextrestored', () => { med = 0; console.warn('[diag] webgl context restored'); });
     window.__diag = this;
   },
 

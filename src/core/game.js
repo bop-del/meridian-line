@@ -4,6 +4,8 @@
 // step(dt, render), advance(seconds) }, ctx.timeScale, events `phase {phase, prev}` and `score:add`, listens to `fx:hitstop {duration}`.
 // state.levelStart / state.levelStats {levelIndex, hits (the KILLS count), kills, score, time, health, maxHealth, lives, livesLost, escortsAlive, escortsTotal} are filled for the level complete screen.
 // URL params for testing: ?autostart=1  ?level=0|1|2  ?god=1  ?difficulty=easy|normal|hard
+// Phones: ?touch=1 forces the touch controls on any browser (src/ui/touch.js, only active when device.touch), ?phonediag=1 shows
+// the diagnostics overlay and exposes it as ctx.phonediag (modules add lines with ctx.phonediag.add(name, fn)).
 import * as THREE from 'three';
 import { config } from '../config.js';
 import { events } from './events.js';
@@ -22,6 +24,7 @@ import { render } from '../render/renderer.js';
 import { fx } from '../fx/fx.js';
 import { audio } from '../audio/audio.js';
 import { ui } from '../ui/ui.js';
+import { touch } from '../ui/touch.js';
 import { world } from '../world/world.js';
 import { enemies } from '../enemies/enemies.js';
 import { allies } from '../allies/allies.js';
@@ -61,6 +64,9 @@ export function startGame(mount, uiRoot) {
 
   all.forEach((m) => safe(m, 'init', ctx, uiRoot));
   all.forEach((m) => safe(m, 'reset', ctx));
+  // touch controls: a layer above the HUD, created only when device.touch is true. Its update runs before input.update each frame.
+  ctx.touch = touch;
+  safe(touch, 'init', ctx, uiRoot);
 
   // Feel tools: the tuning panel and the telemetry it reads, loaded on demand and never on the normal path. They start with
   // ?tune=1 (panel plus telemetry) or ?telemetry=1 (telemetry only), or from the pause menu entry FEEL TUNING.
@@ -82,6 +88,12 @@ export function startGame(mount, uiRoot) {
     document.head.appendChild(st);
   }
   if (params.get('showcase') === '1') import('../showcase/showcase.js').then(({ showcase }) => { dev.push(showcase); ctx.showcase = showcase; safe(showcase, 'init', ctx); });
+  if (params.get('phonediag') === '1') {
+    import('../dev/phonediag.js').then(({ phonediag }) => {
+      dev.push(phonediag); ctx.phonediag = phonediag; safe(phonediag, 'init', ctx);
+      phonediag.add?.('touch', () => touch.describe());
+    }).catch((err) => console.warn('[phonediag] could not load', err));
+  }
   if (params.get('diag') === '1') import('../dev/diag.js').then(({ diag }) => { dev.push(diag); ctx.diag = diag; safe(diag, 'init', ctx); });
   if (params.get('tune') === '1') loadDev(true);
   else if (params.get('telemetry') === '1') loadDev(false);
@@ -228,9 +240,9 @@ export function startGame(mount, uiRoot) {
   // hit stop and slow-mo accents live in src/fx/impact.js
 
   // focus handling
-  const blurPause = () => pause();
+  const blurPause = () => { touch.releaseAll(); pause(); };
   addEventListener('blur', blurPause);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { touch.releaseAll(); pause(); } });
   const unlock = () => { audio.unlock?.(); };
   addEventListener('pointerdown', unlock, { passive: true });
   addEventListener('keydown', unlock);
@@ -250,6 +262,7 @@ export function startGame(mount, uiRoot) {
 
   // Advance the whole game by one tick. Also used by ctx.game.advance() for deterministic tests.
   function step(raw, doRender) {
+    safe(touch, 'update', raw, ctx);
     safe(input, 'update', raw, ctx);
 
     // global keys

@@ -14,6 +14,11 @@
 //   FXAA
 // Look values come from the feel registry group `look` (src/feel/look.js), per level through ctx.world.theme.
 // ?nopost=1 draws the scene straight to the canvas with ACES from the renderer.
+// ?nofloat=1 pretends the GPU has no half float render targets (debug): the game then takes the same path as a device without
+// them, a scene draw with ACES from the renderer plus one cheap grade pass (see FALLBACK_FRAG): copy of the canvas, FXAA-lite edge
+// smoothing, lift/gamma/gain/contrast/saturation and tints, vignette, damage pulse, flash and grain. No bloom, fog, shafts or flare.
+// Touch devices (device.touch): start tier from tiers.js (phones 1, tablets 2), adaptive quality goes down only, resize events are
+// debounced, and a lost WebGL context pauses the game and rebuilds the pipeline when the browser gives it back (render.lostCount).
 //
 // API: render.render(dt) applies fx.shakeRoll (and fx.shakeOffset if the cameraRig does not already add it,
 // detected by cameraRig.trauma or cameraRig.appliesShake) to the camera around the draw call. render.flash(css, alpha, dur)
@@ -24,10 +29,12 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { PostShader } from './postShader.js';
 import { makeEnvironment } from './environment.js';
-import { QUALITY, adapt as adaptQuality } from './tiers.js';
+import { QUALITY, adapt as adaptQuality, startTier } from './tiers.js';
+import { device } from '../core/device.js';
 import { ScenePass } from './passes/scenePass.js';
 import { SanitizeFogShader } from './passes/fogPass.js';
 import { SunPass } from './passes/sunPass.js';
@@ -47,10 +54,61 @@ const hueOffset = (h, out) => {
 };
 const _hv = new THREE.Vector3();
 
+// Fallback grade (no half float render targets, or the composer failed): the scene is drawn straight to the canvas (ACES and sRGB
+// from the renderer), then this pass reads a copy of the canvas and writes the graded result back over it. It works on display
+// values, the grade maths is the one of PostShader (perceptual space = square root of linear light), so the level looks stay close.
+const FALLBACK_FRAG = /* glsl */ `
+  uniform sampler2D tColor;
+  uniform vec2 uTexel;
+  uniform float uGradeOn, uLift, uGamma, uGain, uContrast, uSat, uVignette, uDamage, uFlash, uGrain, uTime;
+  uniform vec3 uShadowTint, uHighTint, uTint, uFlashColor;
+  varying vec2 vUv;
+  float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+  vec3 toLin(vec3 e) { return mix(e / 12.92, pow((e + 0.055) / 1.055, vec3(2.4)), step(0.04045, e)); }
+  vec3 toSrgb(vec3 l) { l = clamp(l, 0.0, 1.0); return mix(l * 12.92, 1.055 * pow(l, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, l)); }
+  float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+  void main() {
+    vec2 c = vUv - 0.5;
+    float d0 = length(c) * 1.4142;
+    vec3 m = texture2D(tColor, vUv).rgb;
+    // FXAA-lite: where the local contrast is high, blend toward the four neighbours (one pass, five fetches)
+    vec3 n = texture2D(tColor, vUv + vec2(0.0, uTexel.y)).rgb, s = texture2D(tColor, vUv - vec2(0.0, uTexel.y)).rgb;
+    vec3 e = texture2D(tColor, vUv + vec2(uTexel.x, 0.0)).rgb, w = texture2D(tColor, vUv - vec2(uTexel.x, 0.0)).rgb;
+    float lm = luma(m);
+    float edge = max(max(abs(luma(n) - lm), abs(luma(s) - lm)), max(abs(luma(e) - lm), abs(luma(w) - lm)));
+    m = mix(m, (m + n + s + e + w) * 0.2, smoothstep(0.05, 0.25, edge) * 0.65);
+    vec3 col = toLin(m) * uTint;
+    if (uGradeOn > 0.5) {
+      vec3 p = sqrt(clamp(col, 0.0, 1.0));
+      p = uGain * (p + uLift * (1.0 - p));
+      p = pow(max(p, vec3(1e-5)), vec3(1.0 / max(uGamma, 0.05)));
+      p = (p - 0.5) * uContrast + 0.5;
+      float l = dot(p, vec3(0.2126, 0.7152, 0.0722));
+      p = max(mix(vec3(l), p, uSat), 0.0);
+      l = clamp(dot(p, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+      p *= mix(uShadowTint, uHighTint, smoothstep(0.08, 0.85, l));
+      p = clamp(p, 0.0, 1.0);
+      col = p * p;
+    }
+    col *= 1.0 - uVignette * smoothstep(0.3, 1.05, d0);
+    if (uDamage > 0.001) {
+      float ed = smoothstep(0.15, 1.0, d0);
+      col = mix(col, vec3(0.75, 0.02, 0.015) * (0.45 + 0.55 * ed), uDamage * (0.04 + 0.42 * ed * ed));
+    }
+    vec3 pg = sqrt(clamp(col, 0.0, 1.0));
+    pg += (hash(vUv * 1531.7 + fract(uTime) * 91.3) - 0.5) * uGrain * (0.5 + 0.5 * (1.0 - clamp(dot(pg, vec3(0.333)), 0.0, 1.0)));
+    if (uFlash > 0.001) pg = mix(pg, sqrt(clamp(uFlashColor, 0.0, 1.0)), min(uFlash * 0.85, 0.8));
+    gl_FragColor = vec4(toSrgb(clamp(pg, 0.0, 1.0) * clamp(pg, 0.0, 1.0)), 1.0);
+  }`;
+
 export const render = {
   ctx: null, composer: null, bloom: null, post: null, mount: null, scenePass: null, sanitize: null, sun: null,
   quality: 0, tier: QUALITY[0], adaptive: true, avgMs: 16, _slow: 0, _fast: 0, _sinceChange: 0,
   _pendingQ: -1, _stepFrom: null, _dropLock: 0, _lockLen: 45,
+  // touch devices: mobile switches the down only controller on (tiers.js), the rest is its state
+  mobile: false, _capLocked: false, _lockMs: 0, _slowLocked: 0, _unlocks: 0,
+  // context loss and capability state, read by src/dev/phonediag.js
+  lost: false, lostCount: 0, floatExt: '', fallback: '', _sizeKey: '', _fb: null, _resizeT: 0, _lostT: 0, _pausedByLoss: false, _notice: null,
   // live look (blended toward the registry values of the current level), bloom/exposure/vignette/tint keep their original names
   look: { ...LEVEL_DEFAULTS.thalassa, tint: new THREE.Color(1, 1, 1), shadowCol: new THREE.Vector3(1, 1, 1), highCol: new THREE.Vector3(1, 1, 1) },
   _lvl: {}, _lvlTint: new THREE.Color(1, 1, 1), _snap: true,
@@ -93,11 +151,22 @@ export const render = {
     const fill = new THREE.HemisphereLight(0xbcd0ff, 0x1a1c30, 0.5); fill.name = 'renderFill'; scene.add(fill);
 
     this.adaptive = !(params.has('noadapt') || window.__noAdaptive);
-    const startQ = params.has('q') ? clamp(Number(params.get('q')) | 0, 0, QUALITY.length - 1) : 0;
+    this.mobile = device.touch;
+    const startQ = params.has('q') ? clamp(Number(params.get('q')) | 0, 0, QUALITY.length - 1) : startTier();
+    if (this.mobile) this._sinceChange = -3;   // shader compiles and the first level load must not count as a slow GPU
     this._buildPipeline(startQ);
     this.resize();
-    this._onResize = () => this.resize();
+    // Resize events: desktop reallocates at once (only when the size or ratio really changed, see resize). On touch devices
+    // rotation and the toolbar animation fire a burst of them: the camera follows at once, the targets wait for the burst to end.
+    this._onResize = () => {
+      if (!this.mobile) { this.resize(); return; }
+      clearTimeout(this._resizeT);
+      this._resizeT = setTimeout(() => this.resize(), 160);
+      this._aspectNow();
+    };
     addEventListener('resize', this._onResize);
+    if (this.mobile) addEventListener('orientationchange', this._onResize);
+    this._initContextLoss(renderer.domElement);
 
     const ev = ctx.events;
     ev?.on?.('player:damage', (e) => {
@@ -114,12 +183,17 @@ export const render = {
     this.quality = q; this.tier = QUALITY[q];
     const Q = QUALITY[q];
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, Q.pr));
+    const qp = new URLSearchParams(location.search);
+    const ext = renderer.extensions;
+    this.floatExt = [ext.has('EXT_color_buffer_float') && 'float', ext.has('EXT_color_buffer_half_float') && 'half'].filter(Boolean).join('+') || 'none';
+    this.fallback = '';
     // ?nopost=1 (diagnosis): no composer at all, the scene is drawn straight to the canvas
-    if (new URLSearchParams(location.search).has('nopost')) { this._noComposer(); return; }
-    // half float render targets need one of these extensions in WebGL2, without them the composer would give a black screen
-    if (!renderer.extensions.has('EXT_color_buffer_float') && !renderer.extensions.has('EXT_color_buffer_half_float')) {
-      console.warn('[render] no float render targets, drawing without post-processing');
-      this._noComposer(); return;
+    if (qp.has('nopost')) { this._noComposer(); this.fallback = 'nopost'; return; }
+    // half float render targets need one of these extensions in WebGL2, without them the composer would give a black screen.
+    // ?nofloat=1 pretends they are missing, to look at the fallback on a desktop GPU.
+    if (qp.has('nofloat') || this.floatExt === 'none') {
+      console.warn('[render] no float render targets, using the cheap grade pass instead of the post chain');
+      this._buildFallback(qp.has('nofloat') ? 'forced by ?nofloat=1' : 'no float render targets'); return;
     }
     try {
       // MSAA on the composer targets renders large black blocks on Apple GPUs (Metal via ANGLE), so the default is no MSAA
@@ -167,11 +241,59 @@ export const render = {
       this._patchBloomSize(Q.bloom);
     } catch (e) {
       console.warn('[render] composer failed, using direct rendering', e);
-      this._noComposer();
+      this._buildFallback('composer failed: ' + (e && e.message ? e.message : e));
     }
   },
 
+  /** no post chain: scene straight to the canvas plus the cheap grade pass (FALLBACK_FRAG). reason is shown by phonediag */
+  _buildFallback(reason) {
+    this._noComposer();
+    this.fallback = reason;
+    try {
+      const u = {
+        tColor: { value: null }, uTexel: { value: new THREE.Vector2() }, uGradeOn: { value: 1 }, uLift: { value: 0 }, uGamma: { value: 1 },
+        uGain: { value: 1 }, uContrast: { value: 1 }, uSat: { value: 1 }, uVignette: { value: 0.35 }, uDamage: { value: 0 }, uFlash: { value: 0 },
+        uGrain: { value: 0.02 }, uTime: { value: 0 }, uShadowTint: { value: new THREE.Vector3(1, 1, 1) }, uHighTint: { value: new THREE.Vector3(1, 1, 1) },
+        uTint: { value: new THREE.Color(1, 1, 1) }, uFlashColor: { value: new THREE.Color(1, 1, 1) },
+      };
+      const mat = new THREE.ShaderMaterial({
+        uniforms: u, depthTest: false, depthWrite: false, transparent: false,
+        vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: FALLBACK_FRAG,
+      });
+      this._fb = { u, mat, quad: new FullScreenQuad(mat), tex: null };
+      this._sizeKey = '';   // the copy texture is (re)created by resize
+    } catch (e) {
+      console.warn('[render] fallback grade failed, plain scene draw', e);
+      this._fb = null; this.fallback += ' (plain)';
+    }
+  },
+
+  _fbResize() {
+    const fb = this._fb;
+    if (!fb) return;
+    const v = this._tmpV2 || (this._tmpV2 = new THREE.Vector2());
+    this.ctx.renderer.getDrawingBufferSize(v);
+    const w = Math.max(1, v.x | 0), h = Math.max(1, v.y | 0);
+    if (fb.tex) fb.tex.dispose();
+    fb.tex = new THREE.FramebufferTexture(w, h);
+    fb.tex.minFilter = THREE.LinearFilter; fb.tex.magFilter = THREE.LinearFilter;
+    fb.u.tColor.value = fb.tex; fb.u.uTexel.value.set(1 / w, 1 / h);
+  },
+
+  _fbDraw() {
+    const fb = this._fb, renderer = this.ctx.renderer;
+    if (!fb || !fb.tex) return;
+    renderer.setRenderTarget(null);
+    renderer.copyFramebufferToTexture(fb.tex);
+    const old = renderer.autoClear;
+    renderer.autoClear = false;
+    fb.quad.render(renderer);
+    renderer.autoClear = old;
+  },
+
   _noComposer() {
+    this._disposePipeline();
     this.composer = null; this.bloom = null; this.post = null; this.scenePass = null; this.sanitize = null; this.sun = null;
     this.ctx.renderer.toneMapping = THREE.ACESFilmicToneMapping;
   },
@@ -186,24 +308,104 @@ export const render = {
 
   setQuality(q) {
     q = clamp(q | 0, 0, QUALITY.length - 1);
-    const { renderer } = this.ctx;
     this.quality = q; this.tier = QUALITY[q];
-    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, QUALITY[q].pr));
-    if (this.composer) { this.composer.setPixelRatio(renderer.getPixelRatio()); this._patchBloomSize(QUALITY[q].bloom); }
-    this.resize();
+    if (this.composer) this._patchBloomSize(QUALITY[q].bloom);
+    this.resize();   // reallocates only when the pixel ratio or the bloom scale differs from the tier before (see _sizeKey)
     this._sinceChange = 0; this._slow = 0; this._fast = 0;
   },
 
-  resize() {
+  _viewSize() {
+    const body = this.mount === document.body;
+    return [body ? innerWidth : (this.mount.clientWidth || innerWidth), body ? innerHeight : (this.mount.clientHeight || innerHeight)];
+  },
+
+  /** camera aspect only (cheap), used while a burst of resize events is still running on touch devices */
+  _aspectNow() {
+    const [w, h] = this._viewSize();
+    if (w < 2 || h < 2) return;
+    const cam = this.ctx.camera;
+    cam.aspect = w / h; cam.updateProjectionMatrix();
+  },
+
+  /**
+   * Canvas and target size. Reallocation (the expensive part, and a leak risk on iOS) happens only when the CSS size, the pixel
+   * ratio the tier renders at or the bloom scale really changed since the last call; force = true always reallocates.
+   */
+  resize(force = false) {
     const { renderer, camera } = this.ctx;
-    const w = this.mount === document.body ? innerWidth : (this.mount.clientWidth || innerWidth);
-    const h = this.mount === document.body ? innerHeight : (this.mount.clientHeight || innerHeight);
+    const [w, h] = this._viewSize();
+    if (w < 2 || h < 2) return;   // hidden, or a transient zero size in the middle of a rotation
     this._w = w; this._h = h;
-    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, (this.tier || QUALITY[0]).pr));   // follows browser zoom and moving the window between screens
-    renderer.setSize(w, h, false);
-    if (this.composer) { this.composer.setPixelRatio(renderer.getPixelRatio()); this.composer.setSize(w, h); }
-    if (this.fxaa) { const pr = renderer.getPixelRatio(); this.fxaa.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); }
     camera.aspect = w / h; camera.updateProjectionMatrix();
+    const T = this.tier || QUALITY[0];
+    const pr = Math.min(devicePixelRatio || 1, T.pr);   // follows browser zoom and moving the window between screens
+    const key = w + 'x' + h + '@' + pr + '/' + T.bloom;
+    if (!force && key === this._sizeKey) return;
+    this._sizeKey = key;
+    renderer.setPixelRatio(pr);
+    renderer.setSize(w, h, false);
+    if (this.composer) { this.composer.setPixelRatio(pr); this.composer.setSize(w, h); }
+    if (this.fxaa) this.fxaa.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
+    if (this._fb) this._fbResize();
+  },
+
+  // ------------------------------------------------------------------ context loss
+  // The browser may take the WebGL context away (iOS under memory pressure or after the page was in the background). preventDefault
+  // on the lost event is what allows a restore. While it is lost nothing is drawn and a running game is paused. When it comes back
+  // the three.js renderer re-creates its GL state on its own, but targets and the baked environment map hold no data any more,
+  // so the pipeline and the environment are rebuilt. If nothing comes back within a few seconds a tap-to-reload message appears.
+  _initContextLoss(canvas) {
+    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this._onLost(); }, false);
+    canvas.addEventListener('webglcontextrestored', () => this._onRestored(), false);
+  },
+
+  _onLost() {
+    this.lost = true; this.lostCount++;
+    console.warn('[render] webgl context lost (' + this.lostCount + ')');
+    const ctx = this.ctx;
+    if (ctx.state?.phase === 'playing') { this._pausedByLoss = true; try { ctx.game?.pause?.(); } catch (e) { /* ignore */ } }
+    clearTimeout(this._lostT);
+    this._lostT = setTimeout(() => { if (this.lost) this._showNotice('GRAPHICS INTERRUPTED', 'The browser has not returned the graphics yet. Tap or click to reload the page.'); }, 4000);
+  },
+
+  _onRestored() {
+    clearTimeout(this._lostT);
+    const ctx = this.ctx, renderer = ctx.renderer;
+    try {
+      // The old targets, passes and environment belonged to the lost context: freeing them now would only make the browser
+      // warn about foreign GL objects, so they are dropped and left to the garbage collector.
+      this.composer = null; this._fb = null; this.fallback = '';
+      this._buildPipeline(this.quality);
+      this.resize(true);
+      try { ctx.scene.environment = makeEnvironment(renderer); } catch (e) { console.warn('env failed', e); }
+      this.lost = false; this._lastWall = 0;
+      this._clearNotice();
+      console.warn('[render] webgl context restored, pipeline rebuilt (paused by the loss: ' + this._pausedByLoss + ')');
+      this._pausedByLoss = false;   // the game stays paused, the player resumes it
+    } catch (e) {
+      console.error('[render] could not rebuild after context loss', e);
+      this._showNotice('GRAPHICS COULD NOT RESTART', 'Tap or click to reload the page.');
+    }
+  },
+
+  _showNotice(title, text) {
+    if (this._notice) return;
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;background:rgba(2,6,12,0.92);color:#dff6f2;font:14px/1.5 system-ui,sans-serif;pointer-events:auto;cursor:pointer;';
+    const t = document.createElement('div'); t.style.cssText = 'font-size:18px;letter-spacing:0.3em;font-weight:300'; t.textContent = title;
+    const d = document.createElement('div'); d.style.cssText = 'max-width:32em;opacity:.8'; d.textContent = text;
+    box.append(t, d);
+    box.addEventListener('click', () => location.reload());
+    document.body.appendChild(box);
+    this._notice = box;
+  },
+
+  _clearNotice() { if (this._notice) { this._notice.remove(); this._notice = null; } },
+
+  _disposePipeline() {
+    try { this.composer?.dispose?.(); } catch (e) { /* the context may be gone, nothing to free then */ }
+    const fb = this._fb;
+    if (fb) { try { fb.tex?.dispose(); fb.mat.dispose(); fb.quad.dispose(); } catch (e) { /* ignore */ } }
   },
 
   reset() {
@@ -341,6 +543,20 @@ export const render = {
       const rad = (P.dofRadius ?? 2.2) / 1080;
       su.uDofRadius.value.set(rad * this._h / Math.max(1, this._w), rad);
     }
+    else if (this._fb) {
+      // fallback grade pass: the same look values as the post chain, applied to display colour after the renderer's own ACES
+      const u = this._fb.u, e = this._extra;
+      u.uTime.value = this._time;
+      u.uVignette.value = L.vignette + this._damagePulse * 0.15;
+      u.uGrain.value = e.grain ?? (P.grain ?? 0.022);
+      u.uDamage.value = e.damage ?? clamp(this._damagePulse * 0.85 + this._lowHp, 0, 1);
+      u.uFlash.value = e.flash ?? clamp(flashAmt, 0, 1);
+      u.uFlashColor.value.copy(f.color);
+      u.uTint.value.copy(L.tint);
+      u.uGradeOn.value = this.tier.grade ? 1 : 0;
+      u.uLift.value = L.lift; u.uGamma.value = L.gamma; u.uGain.value = L.gain; u.uContrast.value = L.contrast; u.uSat.value = L.saturation;
+      u.uShadowTint.value.copy(L.shadowCol); u.uHighTint.value.copy(L.highCol);
+    }
     ctx.renderer.toneMappingExposure = L.exposure;
   },
 
@@ -379,6 +595,7 @@ export const render = {
     if (!ctx) return;
     // Quality changes resize the canvas, which clears it. They are requested from _adapt (after the draw) and applied here,
     // before drawing, so the frame that follows a resize is never presented blank.
+    if (this.lost) return;   // context lost: draw nothing until _onRestored has rebuilt the pipeline
     if (this._pendingQ >= 0) {
       const q = this._pendingQ, up = q < this.quality; this._pendingQ = -1;
       if (q !== this.quality) { this.setQuality(q); if (up) this._sinceChange = -6; }
@@ -401,13 +618,16 @@ export const render = {
     const wall = this._lastWall ? now0 - this._lastWall : 16; this._lastWall = now0;
     if (this.composer) {
       try { this._updateSuns(ctx); this.composer.render(dt); } catch (e) {
+        if (this.lost || renderer.getContext().isContextLost()) { this.lost = true; return; }   // lost in the middle of the frame, the event follows
         console.warn('[render] composer error, falling back', e);
-        this._noComposer();
-        renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5)); this.resize();
+        this._buildFallback('composer error: ' + (e && e.message ? e.message : e));
+        this.resize(true);
         renderer.render(scene, camera);
+        this._fbDraw();
       }
     } else {
       renderer.render(scene, camera);
+      if (this._fb) this._fbDraw();
     }
     if (roll) camera.rotateZ(-roll);
     if (so) camera.position.sub(so);
@@ -423,5 +643,9 @@ export const render = {
     return { calls: i.render.calls, triangles: i.render.triangles, geometries: i.memory.geometries, textures: i.memory.textures, quality: this.quality, avgMs: +this.avgMs.toFixed(1), composer: !!this.composer };
   },
 
-  dispose() { removeEventListener('resize', this._onResize); this.composer?.dispose?.(); },
+  dispose() {
+    removeEventListener('resize', this._onResize); removeEventListener('orientationchange', this._onResize);
+    clearTimeout(this._resizeT); clearTimeout(this._lostT);
+    this._disposePipeline();
+  },
 };

@@ -13,7 +13,7 @@ export const TRACK_NAMES = ['title', 'thalassa', 'cinder', 'foundry', 'boss', 'v
 export const STYLE_KEY = 'meridian-music-style';
 export const OLD_STYLE_KEY = 'meridian-title-variant';
 
-const valid = (id, styles = STYLES) => (typeof id === 'string' && id.toLowerCase() in styles ? id.toLowerCase() : null);
+const valid = (id, styles = STYLES) => (typeof id === 'string' && Object.hasOwn(styles, id.toLowerCase()) ? id.toLowerCase() : null);
 
 /** Returns the selected style id (URL param, then storage, then the old key once, then the default). */
 export function selectedStyle(styles = STYLES, def = DEFAULT_STYLE) {

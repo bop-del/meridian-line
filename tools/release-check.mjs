@@ -1,12 +1,15 @@
-// Release check: the mechanical part of a public readiness review, in about two minutes and with no AI involved.
+// Release check: the mechanical part of a public readiness review, in about three minutes and with no AI involved.
 // Usage: node tools/release-check.mjs [--port=5250] [--skip-install] [--extra-audit="<shell command>"] [--since=<tag>]
 //   1. git hygiene: clean tree, no scratch, log, env or key files tracked, no huge files, no internal wording in tracked text,
-//      no em dashes or spaced double hyphens as punctuation, commit messages since the last tag free of internal wording
+//      no em dashes or spaced double hyphens as punctuation, no private data (home paths, private network addresses, e-mail addresses)
+//      in tracked text, commit messages since the last tag free of internal wording
 //   2. a fresh copy of HEAD (git archive) is installed with npm ci and built; the build must succeed, dist must not contain local
 //      paths, user names or key like strings, sizes are printed
 //   3. the built site is served with vite preview and loaded in headless Chrome: the normal pages, the lab pages and the developer
 //      switches must load with no console error, no page error and no request to a foreign host
-//   4. URL fuzzing: out of range and hostile parameter values must not throw and must not reach a foreign host
+//   4. URL fuzzing: out of range and hostile parameter values (the phone parameters included) must not throw and must not reach a foreign host,
+//      and no request may come back with an HTTP error status
+//   4b. the built site is also served under a sub path (/meridian-line/, like GitHub Pages) and the page, manifest and icons must load there
 //   5. docs: every URL parameter, tool and relative link mentioned in README.md and docs/*.md exists in the code or the repo
 //   6. version: package.json version is printed and must differ from the last tag's version when commits exist since that tag
 // --extra-audit runs one more shell command in the repo (for example a project specific word list check) and fails on a non zero exit.
@@ -62,6 +65,16 @@ console.log(`release-check on ${sh('git rev-parse --short HEAD').trim()} (branch
     });
   }
   dashHits.length ? fail('no em dashes or double hyphens as punctuation', dashHits.slice(0, 6).join(', ')) : pass('no em dashes or double hyphens as punctuation');
+  // private data: built from parts so this file does not match itself
+  const PRIV = [['home path', new RegExp('/Us' + 'ers/|/ho' + 'me/[a-z]|[A-Z]:\\\\Us' + 'ers\\\\')],
+    ['private network address', /\b(192\.168|10\.\d{1,3}|172\.(1[6-9]|2\d|3[01])|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\.\d{1,3}\.\d{1,3}\b/],
+    ['e-mail address', /[A-Za-z0-9._-]+@[A-Za-z0-9-]+\.[a-z]{2,}/]];
+  const privHits = [];
+  for (const f of textFiles) {
+    if (f === 'tools/release-check.mjs') continue;
+    readFileSync(join(ROOT, f), 'utf8').split('\n').forEach((l, i) => { for (const [what, re] of PRIV) if (re.test(l)) privHits.push(`${f}:${i + 1} (${what})`); });
+  }
+  privHits.length ? fail('no private data (home paths, private addresses, e-mail) in tracked text', privHits.slice(0, 6).join(', ')) : pass('no private data (home paths, private addresses, e-mail) in tracked text');
   internalHits.length ? warn('no internal process wording in tracked text', internalHits.slice(0, 6).join(', ')) : pass('no internal process wording in tracked text');
 
   if (since) {
@@ -110,7 +123,7 @@ try {
 }
 
 // ------------------------------------------------------------------ 3 and 4. serve and load
-let server = null, browser = null;
+let server = null, subServer = null, browser = null;
 if (built) {
   try {
     server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], { cwd: copy, stdio: 'ignore' });
@@ -119,11 +132,12 @@ if (built) {
     browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: 'new',
       args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--window-size=1280,720'], defaultViewport: { width: 1280, height: 720 } });
 
-    const visit = async (path, waitMs = 2500) => {
+    const visit = async (path, waitMs = 2500, root = base) => {
       const page = await browser.newPage();
       const errs = [], foreign = [];
       page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text().slice(0, 140)); });
       page.on('pageerror', (e) => errs.push('PAGEERR ' + String(e.message).slice(0, 140)));
+      page.on('response', (r) => { if (r.status() >= 400) errs.push(`HTTP ${r.status()} ${r.url().slice(0, 90)}`); });
       await page.setRequestInterception(true);
       page.on('request', (rq) => {
         const u = rq.url();
@@ -132,7 +146,7 @@ if (built) {
         if (host === '127.0.0.1' || host === 'localhost') return rq.continue();
         foreign.push(u.slice(0, 100)); rq.abort();
       });
-      try { await page.goto(base + path, { waitUntil: 'load', timeout: 30000 }); } catch (e) { errs.push('NAV ' + String(e.message).slice(0, 100)); }
+      try { await page.goto(root + path, { waitUntil: 'load', timeout: 30000 }); } catch (e) { errs.push('NAV ' + String(e.message).slice(0, 100)); }
       await new Promise((r) => setTimeout(r, waitMs));
       const ls = await page.evaluate(() => { try { return Object.keys(localStorage); } catch (e) { return ['unreadable']; } }).catch(() => []);
       await page.close();
@@ -140,7 +154,7 @@ if (built) {
     };
 
     const pages = ['/', '/?autostart=1&god=1&level=0', '/?autostart=1&god=1&level=1', '/?autostart=1&god=1&level=2', '/?autostart=1&god=1&tune=1', '/?autostart=1&god=1&diag=1',
-      '/?telemetry=1', '/music-lab.html', '/sfx-lab.html'];
+      '/?telemetry=1', '/?touch=1&autostart=1&god=1&phonediag=1', '/music-lab.html', '/sfx-lab.html'];
     let bad = 0;
     for (const p of pages) {
       const r = await visit(p, p.includes('lab') ? 1500 : 3000);
@@ -151,14 +165,31 @@ if (built) {
 
     const fuzz = ['/?autostart=1&level=99', '/?autostart=1&level=-1', '/?autostart=1&level=abc', '/?autostart=1&q=99&god=1', '/?autostart=1&difficulty=zzz', '/?style=zz&title=zz',
       '/?tune=1&feel=%%%', '/?tune=1&feel=' + encodeURIComponent(Buffer.from('{"constructor.name":1,"__proto__.x":2,"handling.accel":1e99}').toString('base64')),
-      '/?tune=1&feel=' + 'A'.repeat(6000), '/?diag=1&autostart=1&report=1@evil.example/x', '/?diag=1&autostart=1&report=evil.example', '/?autostart=1&msaa=zzz&nopost=1&nooverlay=1&noadapt'];
+      '/?tune=1&feel=' + 'A'.repeat(6000), '/?diag=1&autostart=1&report=1@evil.example/x', '/?diag=1&autostart=1&report=evil.example', '/?autostart=1&msaa=zzz&nopost=1&nooverlay=1&noadapt',
+      // phone parameters: forced touch on a desktop, the diagnostics overlay, the no-float fallback, the overlay switch
+      '/?touch=1&autostart=1&god=1', '/?touch=1&phonediag=1&autostart=1&god=1&q=99', '/?nofloat=1&autostart=1&god=1', '/?nofloat=1&touch=1&overlay=1&autostart=1&god=1',
+      '/?touch=%00&phonediag=%3Cscript%3Ealert(1)%3C%2Fscript%3E&autostart=1', '/?nofloat=__proto__&overlay=constructor&touch=toString', '/?touch=1&touch=0&phonediag=1&phonediag=0',
+      '/?phonediag=1&report=1@evil.example/x&touch=1', '/?touch=1&level=%00&difficulty=__proto__&autostart=1', '/?nofloat=1&q=-1&touch=1&autostart=1&god=1'];
     let fuzzBad = 0;
     for (const p of fuzz) {
       const r = await visit(p, 2500);
       const problems = [...r.errs, ...r.foreign.map((u) => 'FOREIGN ' + u)];
       if (problems.length) { fuzzBad++; fail(`hostile URL ${p.slice(0, 70)}`, problems.slice(0, 2).join(' | ')); }
     }
-    if (!fuzzBad) pass('hostile and out of range URL parameters', `${fuzz.length} cases, no error and no foreign request`);
+    if (!fuzzBad) pass('hostile and out of range URL parameters', `${fuzz.length} cases, no error, no foreign request, no HTTP error`);
+
+    // the same build under a sub path, as GitHub Pages serves it
+    const SUBPORT = PORT + 1, SUB = '/meridian-line/';
+    subServer = spawn('npx', ['vite', 'preview', '--base', SUB, '--port', String(SUBPORT), '--strictPort', '--host', '127.0.0.1'], { cwd: copy, stdio: 'ignore' });
+    const subBase = `http://127.0.0.1:${SUBPORT}`;
+    for (let i = 0; i < 40; i++) { try { const r = await fetch(subBase + SUB); if (r.ok) break; } catch (e) { /* not up yet */ } await new Promise((r) => setTimeout(r, 500)); }
+    const subFiles = ['manifest.webmanifest', 'apple-touch-icon.png', 'favicon.svg', 'og.jpg'];
+    const subMissing = [];
+    for (const f of subFiles) { try { const r = await fetch(subBase + SUB + f); if (!r.ok) subMissing.push(`${f} ${r.status}`); } catch (e) { subMissing.push(`${f} unreachable`); } }
+    try { const m = await (await fetch(subBase + SUB + 'manifest.webmanifest')).json(); if (!m.icons?.every((ic) => !ic.src.startsWith('/'))) subMissing.push('manifest icon paths must be relative'); } catch (e) { subMissing.push('manifest is not valid JSON'); }
+    const rs = await visit(SUB + '?autostart=1&god=1', 3000, subBase);
+    const subProblems = [...subMissing, ...rs.errs, ...rs.foreign.map((u) => 'FOREIGN ' + u)];
+    subProblems.length ? fail(`built site works under ${SUB}`, subProblems.slice(0, 3).join(' | ')) : pass(`built site works under ${SUB}`, 'page, manifest and icons load, no error');
   } catch (e) {
     fail('serve and load the built site', String(e.message).slice(0, 200));
   }
@@ -201,7 +232,7 @@ if (built) {
 
 // ------------------------------------------------------------------ done
 try { await browser?.close(); } catch (e) { /* ignore */ }
-try { server?.kill(); } catch (e) { /* ignore */ }
+try { server?.kill(); subServer?.kill(); } catch (e) { /* ignore */ }
 try { rmSync(work, { recursive: true, force: true }); } catch (e) { /* ignore */ }
 const nf = rows.filter((r) => r.status === 'FAIL').length, nw = rows.filter((r) => r.status === 'WARN').length;
 console.log(`\n${rows.length} checks: ${rows.length - nf - nw} pass, ${nw} warn, ${nf} fail`);
